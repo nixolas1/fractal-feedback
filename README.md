@@ -22,10 +22,11 @@ The production build precaches the instrument, fonts, and Free mode workspace. A
 
 ## Play
 
-- Choose **Drift**, **Fold**, **Mutual**, **Captive**, **Time loom**, or **Emulsion**. They use different feedback arrangements, rather than switching fractal equations.
-- Move the XY pad and try **Distance**, **Turn**, **Balance**, **Color**, and **Memory**. Small changes matter over many recursions. Shift-drag a slider for fine adjustment, use its arrow keys, or enter a number.
-- **Capture source** disconnects incoming light after a final injection. The image continues evolving inside the loop. **Freeze** holds the actual simulation. Space also freezes it.
-- **Find balance** tests isolated copies and latches an exposure reference. Balance offsets that held reference. It is not a live brightness controller. Free mode disables calibration.
+- Start with **Kaleidoscope**, the default: two cameras and mirrored feedback build a continuously changing pattern. **Branches** makes a fractal from two shrinking, mirrored copies of a triangle seed. Both keep their built-in geometric source flowing so the image stays visible without imported assets. **Drift**, **Fold**, **Mutual**, **Captive**, **Time loom**, and **Emulsion** offer the original optical arrangements.
+- Move the XY pad and try **Distance**, **Angle**, **Contrast**, **Balance**, **Color**, and **Memory**. Contrast adjusts the screens inside the feedback loop. Small changes matter over many recursions. Shift-drag a slider for fine adjustment, use its arrow keys, or enter a number.
+- **Continuous rotation** has independent **Camera A**, **Camera B**, and **Screen** speeds in degrees per second. Negative values reverse a motor; zero stops it at its current angle. Kaleidoscope and Mutual have both cameras. **Angle** sets the camera orientation separately; Free mode also exposes each screen's angle and each node's motor speed.
+- **Capture source** disconnects incoming light after a final injection. The image continues evolving and may fade, especially at low Contrast or Balance. **Resume source** starts feeding it again. **Freeze** holds the simulation and all rotation motors. Space also freezes it.
+- **Find balance** tests isolated copies and latches an exposure reference. Balance offsets that held reference. It is not a live brightness controller. The original instruments calibrate automatically; Kaleidoscope and Branches start with their tuned settings. Free mode disables calibration.
 - Open **Sources** for images, animated GIFs, video, Unicode text, and an explicitly enabled webcam. Drag a file into the studio to import it. A `.feedback` file restores a saved moment.
 - **Free mode** opens the optical bench. Connect typed sockets, adjust the screens and cameras independently, add memory and keys, map modulation, or record a loop of control gestures. An instantaneous cycle is rejected; route feedback through Frame memory.
 - **Save moment** stores the editable scene, feedback and delay buffers, source positions, and a still in the private browser gallery. **Moment** exports its portable package. The down-arrow in the artwork exports a PNG. Recordings use the actual browser-supported format shown in Settings; microphone recording is separately opt-in.
@@ -61,7 +62,7 @@ Browser tests use Chromium with Metal on macOS. Install it with `pnpm exec playw
 | Area                                              | Location                                    |
 | ------------------------------------------------- | ------------------------------------------- |
 | Scene, graph, control and wire schemas            | `src/core/model.ts`, `src/core/protocol.ts` |
-| Six optical instruments                           | `src/core/presets.ts`                       |
+| Optical and fractal instruments                   | `src/core/presets.ts`                       |
 | WebGL resources, shaders and fixed-cadence engine | `src/engine/`                               |
 | Visitor shelf and Free mode workspace             | `src/components/`                           |
 | Phone lease, WebRTC and sensors                   | `src/remote/`, `src/services/sensors.ts`    |

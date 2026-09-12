@@ -95,7 +95,7 @@ function tool(
 }
 tool(
   "get_capabilities",
-  "Inspect available optical nodes, exact parameter ranges, six base instruments, and commands.",
+  "Inspect optical nodes, presets, contrast and independent camera/screen rotation speeds, exact parameter ranges, and commands.",
   {},
   async () => text(await operation("get_capabilities")),
 );

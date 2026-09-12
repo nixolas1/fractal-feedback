@@ -361,13 +361,23 @@ export function Patch() {
                 )
               }
             >
-              {["distance", "turn", "balance", "color", "memory", "x", "y"].map(
-                (v) => (
-                  <option key={v} value={v}>
-                    {v}
-                  </option>
-                ),
-              )}
+              {[
+                "distance",
+                "turn",
+                "balance",
+                "contrast",
+                "color",
+                "memory",
+                "x",
+                "y",
+                "cameraSpin",
+                "cameraBSpin",
+                "screenSpin",
+              ].map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
             </select>
             <input
               aria-label="Modulation depth"

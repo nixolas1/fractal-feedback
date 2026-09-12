@@ -42,7 +42,7 @@ export const NODE_SPECS: Record<
     inputs: [],
     params: {
       level: p("Level", 0, 2, 1),
-      pattern: p("Seed pattern", 0, 3, 0, 1),
+      pattern: p("Seed pattern", 0, 5, 0, 1),
     },
   },
   mixer: {
@@ -51,7 +51,7 @@ export const NODE_SPECS: Record<
     params: {
       mix: p("Source injection", 0, 1, 0.12),
       cross: p("Third input", 0, 1, 0),
-      mode: p("Mix / add / difference", 0, 2, 0, 1),
+      mode: p("Mix / add / difference / brightest", 0, 3, 0, 1),
     },
   },
   screen: {
@@ -66,6 +66,8 @@ export const NODE_SPECS: Record<
       gamma: p("Display gamma", 1, 3, 2.2),
       black: p("Black level", 0, 0.08, 0, 0.0001),
       response: p("Temporal response", 0, 0.95, 0.08),
+      rotation: p("Screen angle", -180, 180, 0, 0.1, "°"),
+      rotationSpeed: p("Screen rotation speed", -60, 60, 0, 0.1, "°/s"),
     },
   },
   optics: {
@@ -74,9 +76,12 @@ export const NODE_SPECS: Record<
     params: {
       distance: p("Magnification", 0.75, 1.25, 1.012, 0.0001),
       rotation: p("Camera roll", -180, 180, 1.2, 0.01, "°"),
+      rotationSpeed: p("Camera rotation speed", -60, 60, 0, 0.1, "°/s"),
+      symmetry: p("Kaleidoscope mirrors", 1, 16, 1, 1),
       x: p("Horizontal position", -0.5, 0.5, 0, 0.001),
       y: p("Vertical position", -0.5, 0.5, 0, 0.001),
       reflection: p("Glass reflection", 0, 1, 0.5),
+      reflectionBlend: p("Glass / lightest blend", 0, 1, 0),
       flipX: p("Reflect horizontally", 0, 1, 1, 1),
       flipY: p("Reflect vertically", 0, 1, 0, 1),
       perspective: p("Perspective", -0.65, 0.65, 0),
@@ -150,7 +155,18 @@ export const GraphNodeSchema = z
     params: z.record(z.number().finite()),
     sourceId: z.string().optional(),
   })
-  .strict();
+  .strict()
+  // Version-one moments predate motor speeds and kaleidoscope mirrors.
+  .transform((node) => ({
+    ...node,
+    params: {
+      ...(node.kind === "screen" ? { rotation: 0, rotationSpeed: 0 } : {}),
+      ...(node.kind === "optics"
+        ? { rotationSpeed: 0, symmetry: 1, reflectionBlend: 0 }
+        : {}),
+      ...node.params,
+    } as Record<string, number>,
+  }));
 export type GraphNode = z.infer<typeof GraphNodeSchema>;
 export const GraphEdgeSchema = z
   .object({
@@ -170,20 +186,27 @@ export const MacrosSchema = z.object({
   distance: z.number().min(-1).max(1),
   turn: z.number().min(-1).max(1),
   balance: z.number().min(-1).max(1),
+  contrast: z.number().min(-1).max(1).default(0),
   color: z.number().min(-1).max(1),
   memory: z.number().min(0).max(1),
   x: z.number().min(-1).max(1),
   y: z.number().min(-1).max(1),
+  cameraSpin: z.number().min(-30).max(30).default(0),
+  cameraBSpin: z.number().min(-30).max(30).default(0),
+  screenSpin: z.number().min(-30).max(30).default(0),
 });
 export type Macros = z.infer<typeof MacrosSchema>;
 export type MacroKey = keyof Macros;
-export const MACROS: {
+export type MacroControl = {
   key: MacroKey;
   label: string;
   min: number;
   max: number;
   hint: string;
-}[] = [
+  unit?: string;
+  step?: number;
+};
+export const MACROS: MacroControl[] = [
   {
     key: "distance",
     label: "Distance",
@@ -191,7 +214,20 @@ export const MACROS: {
     max: 1,
     hint: "Move through the image",
   },
-  { key: "turn", label: "Turn", min: -1, max: 1, hint: "Rotate the camera" },
+  {
+    key: "turn",
+    label: "Angle",
+    min: -1,
+    max: 1,
+    hint: "Adjust the camera angle; use rotation speed for continuous motion",
+  },
+  {
+    key: "contrast",
+    label: "Contrast",
+    min: -1,
+    max: 1,
+    hint: "Screen contrast inside the feedback loop; lower to fade, raise to sustain detail",
+  },
   {
     key: "balance",
     label: "Balance",
@@ -214,9 +250,51 @@ export const MACROS: {
     hint: "Lengthen the feedback path",
   },
 ];
+export const ROTATION_MACROS: MacroControl[] = [
+  {
+    key: "cameraSpin",
+    label: "Camera A",
+    min: -30,
+    max: 30,
+    step: 0.1,
+    unit: "°/s",
+    hint: "Continuous rotation of camera A; negative values reverse direction, zero stops the motor",
+  },
+  {
+    key: "cameraBSpin",
+    label: "Camera B",
+    min: -30,
+    max: 30,
+    step: 0.1,
+    unit: "°/s",
+    hint: "Independent rotation of camera B in a two-camera instrument",
+  },
+  {
+    key: "screenSpin",
+    label: "Screen",
+    min: -30,
+    max: 30,
+    step: 0.1,
+    unit: "°/s",
+    hint: "Rotate the screens independently of both cameras",
+  },
+];
+export const MacroTargetSchema = z.enum([
+  "distance",
+  "turn",
+  "balance",
+  "contrast",
+  "color",
+  "memory",
+  "x",
+  "y",
+  "cameraSpin",
+  "cameraBSpin",
+  "screenSpin",
+]);
 export const ModulationSchema = z.object({
   id: z.string(),
-  target: z.enum(["distance", "turn", "balance", "color", "memory", "x", "y"]),
+  target: MacroTargetSchema,
   source: z.enum([
     "sine",
     "triangle",
@@ -316,15 +394,19 @@ export const defaultMacros: Macros = {
   distance: 0,
   turn: 0,
   balance: 0,
+  contrast: 0,
   color: 0,
   memory: 0,
   x: 0,
   y: 0,
+  cameraSpin: 0,
+  cameraBSpin: 0,
+  screenSpin: 0,
 };
 export const clone = <T>(value: T): T => structuredClone(value);
 
-export function compileGraph(graph: Graph): GraphNode[] {
-  GraphSchema.parse(graph);
+export function compileGraph(input: Graph): GraphNode[] {
+  const graph = GraphSchema.parse(input);
   const nodes = new Map(graph.nodes.map((n) => [n.id, n]));
   if (nodes.size !== graph.nodes.length)
     throw new Error("Node IDs must be unique.");

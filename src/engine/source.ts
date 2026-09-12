@@ -72,7 +72,50 @@ export class SourceManager {
       h = c.height;
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, w, h);
-    if (pattern === 2) {
+    if (pattern === 4 || pattern === 5) {
+      // A few crisp marks, not a pre-rendered fractal. The mirrors and frame
+      // history create the repeated structure at different scales.
+      ctx.save();
+      ctx.translate(w / 2, h / 2);
+      const colors = ["#f9c57a", "#64e8d4", "#9b9fff"];
+      for (let i = 0; i < 3; i++) {
+        ctx.save();
+        ctx.rotate((i * Math.PI * 2) / 3);
+        ctx.strokeStyle = colors[i];
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        if (pattern === 4) {
+          ctx.moveTo(42, -12);
+          ctx.lineTo(185, -65);
+          ctx.lineTo(230, 0);
+          ctx.lineTo(185, 65);
+          ctx.closePath();
+        } else {
+          ctx.moveTo(-95, 75);
+          ctx.lineTo(0, -110);
+          ctx.lineTo(95, 75);
+          ctx.closePath();
+        }
+        ctx.stroke();
+        ctx.fillStyle = colors[i];
+        ctx.beginPath();
+        ctx.arc(155, 0, 9, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+      if (pattern === 4) {
+        // Every camera angle must see fresh light, including the gaps between
+        // the three polygon marks. Otherwise a turning mirror can go black.
+        for (let i = 0; i < 3; i++) {
+          ctx.strokeStyle = colors[i];
+          ctx.lineWidth = 5;
+          ctx.beginPath();
+          ctx.arc(0, 0, 60 + i * 80, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    } else if (pattern === 2) {
       ctx.textAlign = "center";
       ctx.fillStyle = "#dde7e5";
       ctx.font = '500 134px "IBM Plex Sans", sans-serif';
@@ -381,7 +424,12 @@ export class SourceManager {
         ? source.videoHeight
         : (source as ImageBitmap).height;
     if (!sw || !sh) return;
-    const s = Math.min(w / sw, h / sh);
+    // Camera feeds fill the landscape frame without stretching; imported
+    // media keeps its complete composition with letterboxing when needed.
+    const s =
+      item.asset.kind === "camera"
+        ? Math.max(w / sw, h / sh)
+        : Math.min(w / sw, h / sh);
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, w, h);
     ctx.drawImage(source, (w - sw * s) / 2, (h - sh * s) / 2, sw * s, sh * s);

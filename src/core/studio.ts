@@ -43,13 +43,18 @@ class Studio {
   private balanceTimer?: ReturnType<typeof setTimeout>;
   private scheduleBalance(ms: number) {
     clearTimeout(this.balanceTimer);
+    if (
+      PRESETS.find((p) => p.id === this.state.scene.preset)?.autoBalance ===
+      false
+    )
+      return;
     this.balanceTimer = setTimeout(() => {
       if (this.engine) void this.balance();
     }, ms);
   }
   private noticeTimer?: ReturnType<typeof setTimeout>;
   state: State = {
-    scene: PRESETS[1].make(),
+    scene: PRESETS.find((p) => p.id === "kaleidoscope")!.make(),
     revision: 0,
     frozen: false,
     busy: "",
@@ -399,10 +404,20 @@ class Studio {
     this.commit(scene);
   }
   async loadScene(value: unknown) {
-    const scene=validateScene(value);
-    for(const id of scene.assets){if(this.sources.items.has(id))continue;const asset=await storage.getAsset(id);if(!asset)throw new Error(`Source asset ${id} is unavailable. Import it before loading this setup.`);await this.sources.load(asset);}
+    const scene = validateScene(value);
+    for (const id of scene.assets) {
+      if (this.sources.items.has(id)) continue;
+      const asset = await storage.getAsset(id);
+      if (!asset)
+        throw new Error(
+          `Source asset ${id} is unavailable. Import it before loading this setup.`,
+        );
+      await this.sources.load(asset);
+    }
     this.commit(scene);
-    this.update({assets:[...this.sources.items.values()].map(item=>item.asset)});
+    this.update({
+      assets: [...this.sources.items.values()].map((item) => item.asset),
+    });
     this.engine?.reset();
   }
 }

@@ -53,6 +53,8 @@ async function command(name, args = {}) {
 try {
   await page.goto(origin);
   await expect(page.getByLabel("Live optical feedback artwork")).toBeVisible();
+  for (const name of ["Contrast", "Camera A", "Camera B", "Screen"])
+    await expect(page.getByRole("slider", { name, exact: true })).toBeVisible();
   assert.equal(
     await page.evaluate(() => !!window.__feedback),
     false,
@@ -78,7 +80,9 @@ try {
   const claimed = phone.waitForResponse(
     (r) => r.url().endsWith("/claim") && r.request().method() === "POST",
   );
-  await phone.getByRole("button", { name: "Connect to the light" }).click();
+  await phone
+    .getByRole("button", { name: "Connect to the light", exact: true })
+    .click();
   const claim = await (await claimed).json();
   assert.ok(claim.iceServers.length);
   assert.ok(
@@ -88,10 +92,15 @@ try {
   await expect(phone.locator("header")).toContainText("Connected", {
     timeout: 45000,
   });
-  await phone.getByLabel("Turn value", { exact: true }).fill("0.27");
-  await phone.getByLabel("Turn value", { exact: true }).press("Tab");
-  await expect(page.getByLabel("Turn value", { exact: true })).toHaveValue(
+  await phone.getByLabel("Angle value", { exact: true }).fill("0.27");
+  await phone.getByLabel("Angle value", { exact: true }).press("Tab");
+  await expect(page.getByLabel("Angle value", { exact: true })).toHaveValue(
     "0.27",
+  );
+  await phone.getByLabel("Camera A value", { exact: true }).fill("12");
+  await phone.getByLabel("Camera A value", { exact: true }).press("Tab");
+  await expect(page.getByLabel("Camera A value", { exact: true })).toHaveValue(
+    "12",
   );
   await phone.getByRole("button", { name: "Live camera", exact: true }).click();
   await page
@@ -102,7 +111,9 @@ try {
   await expect(page.getByText("Phone camera", { exact: true })).toBeVisible({
     timeout: 15000,
   });
-  await phone.getByRole("button", { name: "Release the instrument" }).click();
+  await phone
+    .getByRole("button", { name: "Release the instrument", exact: true })
+    .click();
   await phoneContext.close();
   results.phone =
     "Direct WebRTC, controls, optional camera action and release passed in two desktop browser contexts.";
@@ -131,7 +142,9 @@ try {
     }),
   );
   const caps = await command("get_capabilities");
-  assert.equal(caps.presets.length, 6);
+  assert.ok(caps.presets.some((preset) => preset.id === "kaleidoscope"));
+  assert.ok(caps.presets.some((preset) => preset.id === "branches"));
+  assert.ok(caps.macros.some((macro) => macro.key === "screenSpin"));
   const { scene } = await command("get_scene");
   scene.mode = "free";
   scene.simulation = {

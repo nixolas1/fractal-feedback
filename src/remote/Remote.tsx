@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ButtonHTMLAttributes } from "react";
 import QRCode from "qrcode";
 import {
   Smartphone,
@@ -20,8 +20,36 @@ import { cloud } from "../services/cloud";
 import { Sensors } from "../services/sensors";
 import { MACROS, defaultMacros, type Macros } from "../core/model";
 import { PRESETS } from "../core/presets";
-import { Mark, XYPad, Slider } from "../components/Controls";
+import { Mark, XYPad, Slider, RotationControls } from "../components/Controls";
+import { ControlHelp } from "../components/ControlHelp";
 import { attempt, studio } from "../core/studio";
+
+const MACRO_HELP: Partial<Record<keyof Macros, string>> = {
+  distance:
+    "Move the viewpoint closer to or farther from the image to change the scale of the repeating pattern",
+  turn: "Turn the camera to change the angle of the pattern; use Camera A or Camera B rotation speed to keep it spinning",
+  contrast:
+    "Control how strongly light and dark details build up in the loop; lower values let the image fade and higher values help sustain it",
+  balance:
+    "Make the loop brighter or darker compared with its last balanced setting; use Find balance to set a new starting point",
+  color: "Shift the colors of the image as it passes through the loop",
+  memory:
+    "Change how far back the loop looks at earlier frames; increase it for longer trails and echoes",
+};
+
+function RemoteButton({
+  label,
+  help,
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; help: string }) {
+  return (
+    <div className="remote-help-control">
+      <button type="button" title={help} {...props} />
+      <ControlHelp label={label} description={help} />
+    </div>
+  );
+}
+
 export function PhonePanel() {
   const host = useHostSession(),
     [qr, setQr] = useState("");
@@ -140,17 +168,9 @@ export function Remote({
     [connected, setConnected] = useState(false),
     [values, setValues] = useState<Macros>({ ...defaultMacros }),
     [preset, setPreset] = useState("fold"),
-    [enabled, setEnabled] = useState<string[]>([]),
-    [preview, setPreview] = useState<MediaStream>();
+    [enabled, setEnabled] = useState<string[]>([]);
   const connection = useRef<PhoneConnection | undefined>(undefined),
-    sensors = useRef<Sensors | undefined>(undefined),
-    video = useRef<HTMLVideoElement>(null);
-  useEffect(() => {
-    if (video.current && preview) {
-      video.current.srcObject = preview;
-      video.current.play().catch(() => {});
-    }
-  }, [preview]);
+    sensors = useRef<Sensors | undefined>(undefined);
   useEffect(
     () => () => {
       connection.current?.close();
@@ -177,17 +197,15 @@ export function Remote({
     const c = new PhoneConnection(sessionId, code);
     connection.current = c;
     c.onStatus = setStatus;
-    c.onPreview = setPreview;
     c.onScene = (state) => {
       setPreset(state.scene);
       setFrozen(state.frozen);
       setFeeding(state.feed);
-      if (state.macros) setValues(state.macros);
+      if (state.macros) setValues({ ...defaultMacros, ...state.macros });
     };
     c.onDisconnected = () => {
       setConnected(false);
       setEnabled([]);
-      setPreview(undefined);
       sensors.current?.stop();
     };
     await c.join();
@@ -234,34 +252,40 @@ export function Remote({
             <br />
             Use the same Wi-Fi as the instrument.
           </p>
-          <button className="button primary large" onClick={() => run(join)}>
+          <RemoteButton
+            label="Connect to the light"
+            help="Tap to take control of the paired instrument. Keep the studio open on the other screen and use the same Wi-Fi for the best connection. You can use the touch controls without enabling any sensors."
+            className="button primary large"
+            onClick={() => run(join)}
+          >
             <Link2 size={18} /> Connect to the light
-          </button>
+          </RemoteButton>
         </div>
       ) : (
         <>
-          <div className="remote-preview">
-            <video ref={video} muted playsInline />
-            <span>
-              {PRESETS.find((p) => p.id === preset)?.name ?? "Live feedback"}
-            </span>
+          <p className="remote-help-intro">Tap ? beside a control for tips.</p>
+          <div className="remote-help-control">
+            <select
+              className="remote-preset"
+              aria-label="Instrument"
+              value={preset}
+              onChange={(e) => {
+                setPreset(e.target.value);
+                connection.current?.action("preset", e.target.value);
+              }}
+            >
+              {PRESETS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} — {p.subtitle}
+                </option>
+              ))}
+            </select>
+            <ControlHelp
+              label="Instrument"
+              description="Tap the menu to choose a different feedback pattern. Changing instruments restarts the loop with that pattern’s settings and keeps your current image or camera source."
+            />
           </div>
-          <select
-            className="remote-preset"
-            aria-label="Instrument"
-            value={preset}
-            onChange={(e) => {
-              setPreset(e.target.value);
-              connection.current?.action("preset", e.target.value);
-            }}
-          >
-            {PRESETS.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} — {p.subtitle}
-              </option>
-            ))}
-          </select>
-          <XYPad values={values} onChange={macro} />
+          <XYPad values={values} onChange={macro} touchHelp />
           <div className="remote-macros">
             {MACROS.map((m) => (
               <Slider
@@ -270,48 +294,91 @@ export function Remote({
                 min={m.min}
                 max={m.max}
                 value={values[m.key]}
+                hint={MACRO_HELP[m.key] ?? m.hint}
+                touchHelp
                 onChange={(v) => macro(m.key, v)}
               />
             ))}
           </div>
+          <RotationControls
+            values={values}
+            dual={preset === "mutual" || preset === "kaleidoscope"}
+            onChange={macro}
+            touchHelp
+          />
           <div className="remote-actions">
-            <button
+            <RemoteButton
+              label="Capture"
+              help="Tap to feed in a final frame and stop new source images entering the loop. The pattern keeps evolving and may fade. To start the source flowing again, choose an instrument or use Resume source on the studio."
               className="button"
               onClick={() => connection.current?.action("capture")}
             >
               <Aperture size={17} /> {feeding ? "Capture" : "Captured"}
-            </button>
-            <button
+            </RemoteButton>
+            <RemoteButton
+              label={frozen ? "Continue" : "Freeze"}
+              help="Freeze pauses the artwork and its rotation. Tap Continue to let it move again."
               className="button"
               onClick={() => connection.current?.action("freeze")}
             >
               <Pause size={17} /> {frozen ? "Continue" : "Freeze"}
-            </button>
-            <button
+            </RemoteButton>
+            <RemoteButton
+              label="Find balance"
+              help="Tap to find a stable brightness reference for the current pattern. Give it a moment to settle, then use Balance to brighten or darken the result. Available when the studio is in Perform mode."
               className="button"
               onClick={() => connection.current?.action("balance")}
             >
               Find balance
-            </button>
-            <button
+            </RemoteButton>
+            <RemoteButton
+              label="Reset"
+              help="Tap to clear the loop’s accumulated image and give the pattern a fresh start. Your instrument and control settings stay in place."
               className="button"
               onClick={() => connection.current?.action("reset")}
             >
               <RotateCcw size={16} /> Reset
-            </button>
+            </RemoteButton>
           </div>
           <section>
             <h2>Let your phone join in</h2>
             <p>Enable only what you want to use.</p>
             <div className="sensor-buttons">
               {[
-                { id: "tilt", label: "Tilt", Icon: Move3D },
-                { id: "microphone", label: "Sound", Icon: Mic },
-                { id: "camera", label: "Live camera", Icon: Camera },
-                { id: "motion", label: "Camera motion", Icon: ScanEye },
-                { id: "impulse", label: "Impulse", Icon: Zap },
-              ].map(({ id, label, Icon }) => (
-                <button
+                {
+                  id: "tilt",
+                  label: "Tilt",
+                  Icon: Move3D,
+                  help: "Tap and allow motion access if asked. Hold the phone comfortably, then tilt or turn it to move the pattern. Use Recenter tilt to make your current position neutral, and Sensitivity to change how strongly it responds.",
+                },
+                {
+                  id: "microphone",
+                  label: "Sound",
+                  Icon: Mic,
+                  help: "Tap and allow microphone access. Music, your voice, and claps can shape the pattern; sharp sounds add a pulse of the source. The phone sends sound levels, not a recording. Use Turn sensors off to stop.",
+                },
+                {
+                  id: "camera",
+                  label: "Live camera",
+                  Icon: Camera,
+                  help: "Tap and allow camera access to feed your rear camera into the artwork. Hold the phone sideways for a wide view and aim at shapes, light, or movement. The camera fills the display. Use Turn sensors off to stop it.",
+                },
+                {
+                  id: "motion",
+                  label: "Camera motion",
+                  Icon: ScanEye,
+                  help: "Tap and allow camera access, then move the phone or wave something in front of it. Movement and color become controls for the pattern; this does not send the camera picture to the artwork. The effect depends on the instrument’s sensor mappings.",
+                },
+                {
+                  id: "impulse",
+                  label: "Impulse",
+                  Icon: Zap,
+                  help: "Tap and allow motion access if asked. A short, deliberate shake adds a pulse of the current source to the loop. Pause briefly between gestures. Use Turn sensors off to stop.",
+                },
+              ].map(({ id, label, Icon, help }) => (
+                <RemoteButton
+                  label={label}
+                  help={help}
                   className={`button ${enabled.includes(id) ? "enabled" : ""}`}
                   disabled={enabled.includes(id)}
                   key={id}
@@ -319,22 +386,26 @@ export function Remote({
                 >
                   <Icon size={17} />
                   {enabled.includes(id) ? `${label} on` : label}
-                </button>
+                </RemoteButton>
               ))}
             </div>
             {enabled.includes("tilt") && (
               <>
-                <button
+                <RemoteButton
+                  label="Recenter tilt"
+                  help="Hold the phone in a comfortable position, then tap to make that position the new neutral point for tilt."
                   className="text-button"
                   onClick={() => sensors.current?.recenter()}
                 >
                   <RefreshCcw size={14} /> Recenter tilt
-                </button>
+                </RemoteButton>
                 <Slider
                   compact
                   label="Sensitivity"
                   min={0.1}
                   max={1}
+                  hint="Adjust how strongly the pattern responds to tilting your phone; lower values make movement gentler and higher values make it stronger"
+                  touchHelp
                   value={sensors.current?.sensitivity ?? 0.65}
                   onChange={(v) => {
                     if (sensors.current) sensors.current.sensitivity = v;
@@ -343,7 +414,9 @@ export function Remote({
                 />
               </>
             )}
-            <button
+            <RemoteButton
+              label="Turn sensors off"
+              help="Tap to stop tilt, sound, camera, camera motion, and impulse input together. The touch controls stay connected. Tap any sensor button to enable it again."
               className="text-button"
               onClick={() => {
                 sensors.current?.stop();
@@ -363,9 +436,11 @@ export function Remote({
               }}
             >
               Turn sensors off
-            </button>
+            </RemoteButton>
           </section>
-          <button
+          <RemoteButton
+            label="Release the instrument"
+            help="Tap to end your turn, disconnect this phone, and stop its sensors and camera. The studio stays open so someone else can connect."
             className="button release"
             onClick={() =>
               run(async () => {
@@ -377,7 +452,7 @@ export function Remote({
             }
           >
             <Unlink size={16} /> Release the instrument
-          </button>
+          </RemoteButton>
         </>
       )}
       {error && (

@@ -13,6 +13,7 @@ export type Preset = {
   description: string;
   color: string;
   topology: string;
+  autoBalance?: boolean;
   make: () => Scene;
 };
 function node(
@@ -97,7 +98,13 @@ function assembly(suffix: string, folded: boolean, roll = 1.3): Graph {
   return { nodes, edges };
 }
 function makePreset(id: string): Scene {
-  const folded = ["fold", "mutual", "emulsion"].includes(id);
+  const folded = [
+    "fold",
+    "mutual",
+    "emulsion",
+    "kaleidoscope",
+    "branches",
+  ].includes(id);
   const a = assembly("a", folded, id === "drift" ? 4.5 : 22.5);
   const graph: Graph = {
     nodes: [
@@ -121,7 +128,7 @@ function makePreset(id: string): Scene {
     graph.nodes.find((n) => n.id === "mix-a")!.params.mix = 0.08;
   }
 
-  if (id === "mutual") {
+  if (id === "mutual" || id === "kaleidoscope") {
     const b = assembly("b", true, -17.5);
     graph.nodes.push(...b.nodes);
     graph.edges.push(...b.edges);
@@ -194,7 +201,63 @@ function makePreset(id: string): Scene {
       distance: 1.002,
     });
   }
+  if (id === "kaleidoscope" || id === "branches") {
+    graph.nodes.find((n) => n.id === "seed")!.params.pattern =
+      id === "branches" ? 5 : 4;
+    for (const n of graph.nodes) {
+      if (n.kind === "mixer" && n.id.startsWith("mix-"))
+        Object.assign(n.params, { mode: 3, mix: 0.95 });
+      if (n.kind === "screen")
+        Object.assign(n.params, {
+          contrast: 1.04,
+          brightness: -0.06,
+          response: 0,
+          hue: n.id.startsWith("upper") ? 0.4 : -0.15,
+          saturation: 1,
+        });
+      if (n.kind === "camera")
+        Object.assign(n.params, {
+          exposure: -0.04,
+          focus: 0,
+          sharpness: 0.7,
+          noise: 0,
+        });
+      if (n.kind === "optics")
+        Object.assign(
+          n.params,
+          id === "branches"
+            ? {
+                symmetry: 1,
+                distance: 0.78,
+                rotation: 30,
+                reflectionScale: 1,
+                x: 0.16,
+                reflectionX: -0.44,
+                reflectionAngle: 0,
+                reflection: 0.5,
+                reflectionBlend: 0.7,
+                aberration: 0,
+              }
+            : {
+                symmetry: 6,
+                distance: n.id.endsWith("-b") ? 1.045 : 1.07,
+                rotation: n.id.endsWith("-b") ? -3 : 2.2,
+                reflectionScale: 0.88,
+                reflectionX: 0.08,
+                reflectionAngle: 25,
+                reflection: 0.5,
+                reflectionBlend: 0.7,
+                aberration: 0,
+              },
+        );
+    }
+  }
   graph.nodes.push(node("output", "output", "Viewing monitor", 1500, 0));
+  if (id === "kaleidoscope" || id === "branches")
+    Object.assign(graph.nodes.find((n) => n.id === "output")!.params, {
+      exposure: 0.25,
+      gamma: 1,
+    });
   graph.edges.push(edge(out, "output", "signal"));
   return {
     schemaVersion: 1,
@@ -203,7 +266,13 @@ function makePreset(id: string): Scene {
     preset: id,
     mode: "visitor",
     graph,
-    macros: { ...defaultMacros },
+    macros: {
+      ...defaultMacros,
+      ...(id === "kaleidoscope"
+        ? { cameraSpin: 3, cameraBSpin: -2, screenSpin: 1 }
+        : {}),
+      ...(id === "branches" ? { cameraSpin: 0.6 } : {}),
+    },
     baseline: {},
     linked: true,
     feed: true,
@@ -241,7 +310,7 @@ function makePreset(id: string): Scene {
         rate: 0.1,
         enabled: true,
       },
-      ...(id === "captive"
+      ...(["captive", "kaleidoscope", "branches"].includes(id)
         ? []
         : [
             {
@@ -265,6 +334,8 @@ const PRESET_NAMES: Record<string, string> = {
   captive: "Captive",
   "time-loom": "Time loom",
   emulsion: "Emulsion",
+  kaleidoscope: "Kaleidoscope",
+  branches: "Branches",
 };
 export const PRESETS: Preset[] = [
   {
@@ -326,6 +397,28 @@ export const PRESETS: Preset[] = [
     color: "#bfcba2",
     topology: "Optics + diffusion field",
     make: () => makePreset("emulsion"),
+  },
+  {
+    id: "kaleidoscope",
+    name: "Kaleidoscope",
+    subtitle: "Two cameras. Turning mirrors. Endless detail.",
+    description:
+      "Six mirrored sectors and two independently rotating cameras build nested patterns. A continuous geometric source keeps the loop alive.",
+    color: "#eacb86",
+    topology: "Two rotating loops + six mirrors",
+    autoBalance: false,
+    make: () => makePreset("kaleidoscope"),
+  },
+  {
+    id: "branches",
+    name: "Branches",
+    subtitle: "Each image makes two smaller worlds",
+    description:
+      "Two shrinking, mirrored copies make a branching fractal from a simple triangle seed. Keep the source flowing to sustain it, or capture to let it fade.",
+    color: "#83decf",
+    topology: "Contracting mirrored feedback",
+    autoBalance: false,
+    make: () => makePreset("branches"),
   },
 ];
 export function newNode(kind: NodeKind, count: number) {

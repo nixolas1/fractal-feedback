@@ -5,11 +5,12 @@ import {
   compileGraph,
   defaultMacros,
   interpolateAutomation,
+  CommandSchema,
   validateScene,
 } from "../src/core/model";
 import { PRESETS } from "../src/core/presets";
 describe("causal optical graph", () => {
-  it("compiles all six genuinely different instruments", () => {
+  it("compiles every instrument with causal feedback routing", () => {
     const graphs = PRESETS.map((p) => {
       const s = p.make();
       validateScene(s);
@@ -65,5 +66,58 @@ describe("causal optical graph", () => {
     ];
     expect(interpolateAutomation(points, 1)?.turn).toBe(0.5);
     expect(interpolateAutomation(points, 8)?.turn).toBe(1);
+  });
+  it("loads old scenes and gesture lanes with stationary motors and unchanged optical behavior", () => {
+    const scene = PRESETS[1].make();
+    const legacy = JSON.parse(JSON.stringify(scene));
+    for (const key of ["contrast", "cameraSpin", "cameraBSpin", "screenSpin"])
+      delete legacy.macros[key];
+    for (const node of legacy.graph.nodes) {
+      delete node.params.rotationSpeed;
+      delete node.params.symmetry;
+      delete node.params.reflectionBlend;
+      if (node.kind === "screen") delete node.params.rotation;
+    }
+    legacy.automation.points = [{ time: 0, values: { ...legacy.macros } }];
+    const loaded = validateScene(legacy);
+    expect(loaded.macros).toEqual(defaultMacros);
+    expect(loaded.automation.points[0].values).toEqual(defaultMacros);
+    expect(
+      loaded.graph.nodes.find((n) => n.kind === "optics")!.params,
+    ).toMatchObject({
+      rotationSpeed: 0,
+      symmetry: 1,
+      reflectionBlend: 0,
+    });
+    expect(legacy.macros).not.toHaveProperty("cameraSpin");
+  });
+  it("keeps partial control messages partial and validates each motor independently", () => {
+    expect(
+      CommandSchema.parse({ type: "macros", values: { turn: 0.2 } }),
+    ).toEqual({
+      type: "macros",
+      values: { turn: 0.2 },
+    });
+    const scene = PRESETS.find((p) => p.id === "kaleidoscope")!.make();
+    const next = applyBatch(scene, [
+      {
+        type: "macros",
+        values: {
+          contrast: 0.3,
+          cameraSpin: 12,
+          cameraBSpin: -8,
+          screenSpin: 0,
+        },
+      },
+    ]);
+    expect(next.macros).toMatchObject({
+      contrast: 0.3,
+      cameraSpin: 12,
+      cameraBSpin: -8,
+      screenSpin: 0,
+    });
+    expect(() =>
+      applyBatch(scene, [{ type: "macros", values: { cameraSpin: 31 } }]),
+    ).toThrow();
   });
 });

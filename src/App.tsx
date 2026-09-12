@@ -24,7 +24,13 @@ import {
 import { studio, useStudio, attempt } from "./core/studio";
 import { PRESETS } from "./core/presets";
 import { MACROS } from "./core/model";
-import { Mark, PresetGlyph, Slider, XYPad } from "./components/Controls";
+import {
+  Mark,
+  PresetGlyph,
+  Slider,
+  XYPad,
+  RotationControls,
+} from "./components/Controls";
 import { Sources, Gallery, Settings } from "./components/Drawers";
 const Patch = lazy(() =>
   import("./components/Patch").then((module) => ({ default: module.Patch })),
@@ -123,8 +129,31 @@ function Instrument() {
     canvas = useRef<HTMLCanvasElement>(null),
     file = useRef<HTMLInputElement>(null),
     [dragging, setDragging] = useState(false),
-    [fullscreen, setFullscreen] = useState(false);
+    [fullscreen, setFullscreen] = useState(false),
+    [controlsVisible, setControlsVisible] = useState(true);
   const preset = PRESETS.find((p) => p.id === state.scene.preset) ?? PRESETS[1];
+  const cameraSource = state.assets.some(
+    (asset) => asset.id === state.scene.source && asset.kind === "camera",
+  );
+  useEffect(() => {
+    if (!state.clean) return;
+    let timer: ReturnType<typeof setTimeout>;
+    function showControls() {
+      setControlsVisible(true);
+      clearTimeout(timer);
+      timer = setTimeout(() => setControlsVisible(false), 1000);
+    }
+    showControls();
+    window.addEventListener("pointermove", showControls);
+    window.addEventListener("pointerdown", showControls);
+    window.addEventListener("keydown", showControls);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("pointermove", showControls);
+      window.removeEventListener("pointerdown", showControls);
+      window.removeEventListener("keydown", showControls);
+    };
+  }, [state.clean]);
   useEffect(() => {
     studio.mount(canvas.current!);
     const params = new URLSearchParams(location.search);
@@ -238,7 +267,7 @@ function Instrument() {
       <div className="stage">
         <canvas
           ref={canvas}
-          className="art-canvas"
+          className={`art-canvas ${cameraSource ? "camera-feed" : ""}`}
           aria-label="Live optical feedback artwork"
         />
         <div className="stage-top">
@@ -349,15 +378,29 @@ function Instrument() {
             ))}
           </div>
         </div>
+        <RotationControls
+          values={state.scene.macros}
+          dual={state.scene.graph.nodes.some(
+            (n) => n.kind === "optics" && n.id.endsWith("-b"),
+          )}
+          onChange={(key, value) => attempt(() => studio.macro(key, value))}
+        />
         <div className="actions-row">
           <div className="performance-actions">
             <button
               className={`button capture-button ${!state.scene.feed ? "captured" : ""}`}
-              onClick={() => attempt(() => studio.capture())}
+              title="Keep the source flowing for sustained patterns. Capture disconnects it so the loop can decay."
+              onClick={() =>
+                attempt(() =>
+                  state.scene.feed
+                    ? studio.capture()
+                    : studio.commands([{ type: "feed", enabled: true }]),
+                )
+              }
               disabled={busy}
             >
               <Aperture size={16} />
-              {state.scene.feed ? "Capture source" : "Captured"}
+              {state.scene.feed ? "Capture source" : "Resume source"}
             </button>
             <button
               className="text-button"
@@ -425,9 +468,10 @@ function Instrument() {
         </div>
       </footer>
       {state.clean && (
-        <div className="clean-controls">
+        <div className={`clean-controls ${controlsVisible ? "visible" : ""}`}>
           <button
             className="button"
+            aria-label={state.frozen ? "Continue" : "Freeze"}
             onClick={() => attempt(() => studio.freeze())}
           >
             {state.frozen ? <Play size={16} /> : <Pause size={16} />}

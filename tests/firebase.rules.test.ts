@@ -139,6 +139,29 @@ describe("installation permissions", () => {
       set(ref(db, "sessions/test-session/inbox/fake"), { method: "reset" }),
     );
   });
+  it("accepts independent rotation speeds without widening other phone controls", async () => {
+    const sample = ref(
+      env.authenticatedContext("phone").database(),
+      "sessions/test-session/samples",
+    );
+    const send = (values: Record<string, number>, type = "macros") =>
+      set(sample, {
+        uid: "phone",
+        epoch: 1,
+        seq: 4,
+        type,
+        values,
+      });
+    await assertSucceeds(
+      send({ cameraSpin: 30, cameraBSpin: -30, screenSpin: 5, contrast: 0.5 }),
+    );
+    await assertFails(send({ cameraSpin: 30.1 }));
+    await assertFails(send({ cameraBSpin: -30.1 }));
+    await assertFails(send({ screenSpin: 31 }));
+    await assertFails(send({ contrast: 2 }));
+    await assertFails(send({ turn: 2 }));
+    await assertFails(send({ screenSpin: 5 }, "sensors"));
+  });
   it("keeps gallery documents immutable and owner-scoped", async () => {
     const db = env.authenticatedContext("owner").firestore(),
       path = `users/owner/moments/rules-${Date.now()}`;

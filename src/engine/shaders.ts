@@ -12,7 +12,7 @@ uniform int uKind;
 uniform float uTime,uFrame,uSeed,uFeed,uPulse;
 uniform float level,mixAmount,crossAmount,mixMode;
 uniform float brightness,contrast,hue,saturation,gammaValue,blackLevel,response;
-uniform float distanceValue,rotation,xOffset,yOffset,reflection,flipX,flipY,perspective,reflectionAngle,reflectionScale,reflectionX,reflectionY,aberration;
+uniform float distanceValue,rotation,xOffset,yOffset,reflection,reflectionBlend,symmetry,flipX,flipY,perspective,reflectionAngle,reflectionScale,reflectionX,reflectionY,aberration;
 uniform float exposure,focus,sharpness,noiseAmount,warmth,shoulder;
 uniform float keyMode,threshold,softness,invertKey;
 uniform float flow,diffusion,feed,decay;
@@ -20,11 +20,18 @@ uniform float viewExposure,viewGamma;
 const float PI=3.14159265359;
 vec3 sampleEdge(sampler2D s,vec2 p){if(any(lessThan(p,vec2(0)))||any(greaterThan(p,vec2(1))))return vec3(0);return texture(s,p).rgb;}
 vec2 rotate2(vec2 p,float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c)*p;}
+vec2 screenUV(vec2 q){if(rotation==0.)return q;vec2 aspect=vec2(uResolution.x/uResolution.y,1.);return rotate2((q-.5)*aspect,rotation*PI/180.)/aspect+.5;}
 vec3 hueRotate(vec3 c,float a){vec3 k=normalize(vec3(1));float s=sin(a),co=cos(a);return c*co+cross(k,c)*s+k*dot(k,c)*(1.-co);}
+vec3 brighter(vec3 a,vec3 b){return dot(a,vec3(.2126,.7152,.0722))>=dot(b,vec3(.2126,.7152,.0722))?a:b;}
 float random(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233))+uFrame*.173+uSeed)*43758.5453);}
 vec2 projected(vec2 q,float angle,bool mirrored){
  float aspect=uResolution.x/uResolution.y;
  vec2 p=(q-.5)*vec2(aspect,1.);
+ if(symmetry>1.5){
+   float wedge=PI/symmetry;
+   float angle=abs(mod(atan(p.y,p.x)+wedge,2.*wedge)-wedge);
+   p=length(p)*vec2(cos(angle),sin(angle));
+ }
  p+=vec2(xOffset,yOffset);
  p.y/=max(.25,1.+perspective*p.x);
  p=rotate2(p,angle*PI/180.)/distanceValue;
@@ -41,11 +48,12 @@ void main(){
    if(uPulse>.5)m=max(m,.36);
    if(mixMode<.5)col=mix(a,b,m);
    else if(mixMode<1.5)col=a+b*m;
-   else col=abs(a-b*m);
+   else if(mixMode<2.5)col=abs(a-b*m);
+   else col=brighter(a,b*m);
    col=mix(col,c,crossAmount);
  }
  if(uKind==2){
-   vec3 signal=hueRotate(a,hue*PI/180.);
+   vec3 signal=hueRotate(sampleEdge(uA,screenUV(uv)),hue*PI/180.);
    float l=dot(signal,vec3(.2126,.7152,.0722));signal=mix(vec3(l),signal,saturation);
    signal=clamp(signal*contrast+brightness,0.,1.);
    vec3 emitted=pow(signal,vec3(gammaValue));
@@ -54,7 +62,10 @@ void main(){
  }
  if(uKind==3){
    vec2 p=projected(uv,rotation,false),r=projected(uv,rotation+reflectionAngle,true);
-   col=lens(uA,p)*(1.-reflection)+lens(uB,r)*reflection;
+   vec3 direct=lens(uA,p),reflected=lens(uB,r);
+   vec3 glass=direct*(1.-reflection)+reflected*reflection;
+   vec3 lightest=brighter(direct*min(1.,2.*(1.-reflection)),reflected*min(1.,2.*reflection));
+   col=mix(glass,lightest,reflectionBlend);
  }
  if(uKind==4){
    vec2 d=max(focus,1.)/uResolution;

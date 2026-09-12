@@ -59,6 +59,7 @@ export const CheckpointStateSchema = z.object({
   pulse: z.number().int().min(0).max(1000),
   heads: z.record(z.number().int().min(0).max(30)),
   front: z.record(z.number().int().min(0).max(1)),
+  rotations: z.record(z.number().finite().min(-180).max(180)).default({}),
 });
 export const CheckpointBufferSchema = z.object({
   key: z

@@ -47,8 +47,6 @@ export class HostSession {
   private peer?: RTCPeerConnection;
   private actions?: RTCDataChannel;
   private samples?: RTCDataChannel;
-  private preview?: MediaStream;
-  private previewTimer?: ReturnType<typeof setInterval>;
   private statusTimer?: ReturnType<typeof setInterval>;
   private lastSeq = -1;
   private seen = new Set<string>();
@@ -200,15 +198,6 @@ export class HostSession {
       if (e.track.kind === "video" && e.streams[0])
         attempt(() => studio.camera(e.streams[0]));
     };
-    const canvas = document.createElement("canvas");
-    canvas.width = 640;
-    canvas.height = 360;
-    const ctx = canvas.getContext("2d")!;
-    this.previewTimer = setInterval(() => {
-      if (studio.engine) ctx.drawImage(studio.engine.canvas, 0, 0, 640, 360);
-    }, 100);
-    this.preview = canvas.captureStream(10);
-    this.preview.getTracks().forEach((t) => pc.addTrack(t, this.preview!));
     const queued: RTCIceCandidateInit[] = [];
     this.peerOffs.push(
       onChildAdded(ref(cloud.db!, `${base}/remoteCandidates`), (snap) => {
@@ -305,8 +294,6 @@ export class HostSession {
     this.peer = undefined;
     this.actions = undefined;
     this.samples = undefined;
-    this.preview?.getTracks().forEach((t) => t.stop());
-    clearInterval(this.previewTimer);
     this.lastSeq = -1;
     this.seen.clear();
     studio.sensor({
@@ -352,7 +339,6 @@ export class PhoneConnection {
   private flushTimer?: ReturnType<typeof setTimeout>;
   onStatus?: (status: string) => void;
   onScene?: (state: any) => void;
-  onPreview?: (stream: MediaStream) => void;
   onDisconnected?: () => void;
   constructor(
     public id: string,
@@ -377,9 +363,6 @@ export class PhoneConnection {
       if (e.channel.label === "actions") this.actions = e.channel;
       else this.samples = e.channel;
       e.channel.onopen = () => this.onStatus?.("Connected");
-    };
-    pc.ontrack = (e) => {
-      if (e.streams[0]) this.onPreview?.(e.streams[0]);
     };
     pc.onconnectionstatechange = () => {
       if (
@@ -497,10 +480,20 @@ export class PhoneConnection {
         "Wait for the video connection before enabling your camera.",
       );
     const stream = await mediaDevices().getUserMedia({
-      video: { width: 1280, height: 720, facingMode: "environment" },
+      video: {
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        aspectRatio: { ideal: 16 / 9 },
+        facingMode: "environment",
+      },
       audio: false,
     });
-    stream.getTracks().forEach((t) => this.peer!.addTrack(t, stream));
+    stream.getVideoTracks().forEach((track) =>
+      this.peer!.addTransceiver(track, {
+        direction: "sendonly",
+        streams: [stream],
+      }),
+    );
     await this.peer.setLocalDescription(await this.peer.createOffer());
     await set(
       ref(cloud.db!, `sessions/${this.id}/signals/${this.epoch}/remoteOffer`),

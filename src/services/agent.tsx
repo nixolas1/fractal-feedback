@@ -5,6 +5,8 @@ import { z } from "zod";
 import { studio, attempt } from "../core/studio";
 import {
   NODE_SPECS,
+  MACROS,
+  ROTATION_MACROS,
   BatchSchema,
   SceneSchema,
   validateScene,
@@ -37,6 +39,7 @@ export async function executeOperation(method: string, args: any = {}) {
     return {
       version: 1,
       nodes: NODE_SPECS,
+      macros: [...MACROS, ...ROTATION_MACROS],
       presets: PRESETS.map(({ id, name, description }) => ({
         id,
         name,

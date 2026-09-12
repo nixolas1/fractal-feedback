@@ -3,6 +3,9 @@ import {
   NODE_SPECS,
   clone,
   interpolateAutomation,
+  MACROS,
+  ROTATION_MACROS,
+  validateScene,
   type Scene,
   type GraphNode,
   type Macros,
@@ -39,9 +42,13 @@ export type EngineState = {
   heads: Record<string, number>;
   front: Record<string, number>;
   pulse: number;
+  rotations?: Record<string, number>;
 };
 type NodeMemory = { targets: Target[]; front: number; head: number };
 const clamp = (x: number, a: number, b: number) => Math.max(a, Math.min(b, x));
+const macroBounds = new Map(
+  [...MACROS, ...ROTATION_MACROS].map((spec) => [spec.key, spec]),
+);
 const uniformNames: Record<string, string> = {
   mix: "mixAmount",
   cross: "crossAmount",
@@ -77,6 +84,7 @@ export class OpticalEngine {
   sensor: SensorSample = {};
   sensorAt = 0;
   private smoothSensor: SensorSample = {};
+  private rotations = new Map<string, number>();
   private raf = 0;
   private previous = 0;
   private reportAt = 0;
@@ -146,7 +154,7 @@ export class OpticalEngine {
     }
   };
   configure(scene: Scene, rebuild = false) {
-    const candidate = clone(scene);
+    const candidate = validateScene(scene);
     const order = compileGraph(candidate.graph);
     const shape = (s: Scene) =>
       JSON.stringify([
@@ -160,7 +168,9 @@ export class OpticalEngine {
         .pattern !==
       scene.graph.nodes.find((n) => n.kind === "source")?.params.pattern;
     this.scene = candidate;
-    this.order = order;
+    this.order = order.map((n) =>
+      candidate.graph.nodes.find((node) => node.id === n.id)!,
+    );
     this.sources.retainTextures(
       new Set(
         order
@@ -259,6 +269,7 @@ export class OpticalEngine {
     }
     this.frame = 0;
     this.pulse = 36;
+    this.rotations.clear();
     this.outputs.clear();
   }
   start() {
@@ -330,8 +341,10 @@ export class OpticalEngine {
       else v = this.smoothSensor[mod.source] ?? 0;
       m[mod.target] += v * mod.depth;
     }
-    for (const k of Object.keys(m) as MacroKey[])
-      m[k] = clamp(m[k], k === "memory" ? 0 : -1, 1);
+    for (const k of Object.keys(m) as MacroKey[]) {
+      const spec = macroBounds.get(k);
+      m[k] = clamp(m[k], spec?.min ?? -1, spec?.max ?? 1);
+    }
     return m;
   }
   setSensor(sample: SensorSample) {
@@ -398,6 +411,7 @@ export class OpticalEngine {
       if (n.kind === "key") values.keyMode = n.params.mode;
       if (n.kind === "screen") {
         values.hue = n.params.hue + m.color * 4.5;
+        values.contrast = n.params.contrast * Math.pow(2, m.contrast * 0.18);
       }
       const linked = this.scene.linked || !n.id.endsWith("-b");
       if (n.kind === "optics" && linked) {
@@ -405,6 +419,22 @@ export class OpticalEngine {
         values.rotation = n.params.rotation + m.turn * 5;
         values.xOffset = n.params.x + m.x * 0.045;
         values.yOffset = n.params.y + m.y * 0.045;
+      }
+      if (n.kind === "optics" || n.kind === "screen") {
+        const speed =
+          n.params.rotationSpeed +
+          (n.kind === "screen"
+            ? m.screenSpin
+            : n.id.endsWith("-b")
+              ? m.cameraBSpin
+              : m.cameraSpin);
+        // Integrate speed, rather than multiplying elapsed time: changing a motor
+        // or stopping it must preserve its current angle. Freeze never advances it.
+        const angle =
+          (this.rotations.get(n.id) ?? 0) + speed / this.scene.simulation.fps;
+        const phase = ((((angle + 180) % 360) + 360) % 360) - 180;
+        this.rotations.set(n.id, phase);
+        values.rotation += phase;
       }
       if (n.kind === "camera")
         values.exposure =
@@ -518,6 +548,7 @@ export class OpticalEngine {
     return {
       frame: this.frame,
       pulse: this.pulse,
+      rotations: Object.fromEntries(this.rotations),
       heads: Object.fromEntries([...this.memory].map(([k, m]) => [k, m.head])),
       front: Object.fromEntries([...this.memory].map(([k, m]) => [k, m.front])),
     };
@@ -559,6 +590,7 @@ export class OpticalEngine {
   restoreState(state: EngineState) {
     this.frame = state.frame;
     this.pulse = state.pulse;
+    this.rotations = new Map(Object.entries(state.rotations ?? {}));
     for (const [id, mem] of this.memory) {
       const head = state.heads[id] ?? 0,
         front = state.front[id] ?? 0;

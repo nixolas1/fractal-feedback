@@ -30,7 +30,7 @@ Only stdio protocol messages go to stdout. The adapter requires HTTPS, except fo
 
 | Tool               | Operation                                                                                  |
 | ------------------ | ------------------------------------------------------------------------------------------ |
-| `get_capabilities` | Version, presets, node sockets, and exact parameter bounds.                                |
+| `get_capabilities` | Version, presets, node sockets, performance macros, and exact parameter bounds and units.  |
 | `get_scene`        | Current validated scene and its revision.                                                  |
 | `get_frame`        | JPEG of the actual canvas, up to 1280 pixels wide.                                         |
 | `get_metrics`      | Actual cadence/resolution/precision/memory, image statistics, and calibration diagnostics. |
@@ -63,7 +63,15 @@ For example, after obtaining revision 12:
   "args": {
     "expectedRevision": 12,
     "commands": [
-      { "type": "macros", "values": { "turn": 0.08, "balance": 0.03 } },
+      {
+        "type": "macros",
+        "values": {
+          "contrast": 0.08,
+          "cameraSpin": 3,
+          "cameraBSpin": -2,
+          "screenSpin": 1
+        }
+      },
       {
         "type": "parameter",
         "node": "optics-a",
@@ -76,6 +84,8 @@ For example, after obtaining revision 12:
 ```
 
 A stale revision or any invalid member rejects the whole batch. Graph edits must retain one output, use valid sockets, and break recursive cycles with Frame memory. `src/core/model.ts` and `src/core/protocol.ts` are the shared versioned schemas used by the UI, phone, API, and MCP adapter.
+
+Load `kaleidoscope` for two rotating cameras or `branches` for contracting mirrored feedback. No asset upload is needed. The three rotation macros are independent speeds in degrees per second, from -30 to 30; zero holds the current motor angle. The `turn` macro adjusts static camera angle. Each screen and optical node also exposes `rotation` and `rotationSpeed` for individual control. `contrast` ranges from -1 to 1 and affects screen contrast inside the loop. Capture disconnects the source and may allow decay; resume it with `{ "type": "feed", "enabled": true }` in an atomic batch.
 
 The server rejects mutations while a visitor holds the lease. It returns HTTP 409 with `Renderer offline` when the browser is unavailable or stale. The host rechecks authority when dequeuing a command. Receipts belong to the caller; another grant cannot read them. Signed media URLs pin the selected object generation. Sharing is a separate owner operation and is intentionally absent from this tool set.
 

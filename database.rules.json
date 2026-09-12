@@ -43,7 +43,7 @@
           ".validate": "newData.hasChildren(['uid','epoch','seq','type','values']) && newData.child('uid').val() == auth.uid && newData.child('epoch').val() == root.child('sessions').child($id).child('controller/epoch').val() && newData.child('seq').isNumber() && (newData.child('type').val() == 'macros' || newData.child('type').val() == 'sensors')",
           "values": {
             "$key": {
-              ".validate": "newData.isNumber() && newData.val() >= -1 && newData.val() <= 1"
+              ".validate": "newData.isNumber() && (($key == 'cameraSpin' || $key == 'cameraBSpin' || $key == 'screenSpin') ? (newData.parent().parent().child('type').val() == 'macros' && newData.val() >= -30 && newData.val() <= 30) : (newData.val() >= -1 && newData.val() <= 1))"
             }
           }
         },

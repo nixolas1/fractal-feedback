@@ -25,12 +25,15 @@ test("exclusive phone lease, real WebRTC camera transfer, fallback controls, hos
   await phone.goto(
     `http://localhost:5174/?remote=${session.id}&code=${session.code}`,
   );
-  await phone.getByRole("button", { name: "Connect to the light" }).click();
+  await phone
+    .getByRole("button", { name: "Connect to the light", exact: true })
+    .click();
   await expect(phone.locator("header")).toContainText("Connected", {
     timeout: 30000,
   });
-  await phone.getByLabel("Turn value", { exact: true }).fill("0.31");
-  await phone.getByLabel("Turn value", { exact: true }).press("Tab");
+  await expect(phone.locator("video")).toHaveCount(0);
+  await phone.getByLabel("Angle value", { exact: true }).fill("0.31");
+  await phone.getByLabel("Angle value", { exact: true }).press("Tab");
   await expect
     .poll(() =>
       page.evaluate(
@@ -60,12 +63,37 @@ test("exclusive phone lease, real WebRTC camera transfer, fallback controls, hos
       ),
     )
     .toBe(true);
+  expect(
+    await page.evaluate(() =>
+      (window as any).__feedback.hostSession.peer
+        .getSenders()
+        .some((sender: RTCRtpSender) => sender.track?.kind === "video"),
+    ),
+  ).toBe(false);
+  await expect
+    .poll(() =>
+      phone.evaluate(() =>
+        (window as any).__feedbackRemote
+          .connection()
+          .peer.getTransceivers()
+          .map(
+            (transceiver: RTCRtpTransceiver) => transceiver.currentDirection,
+          ),
+      ),
+    )
+    .toEqual(["sendonly"]);
+  await expect(page.getByLabel("Live optical feedback artwork")).toHaveCSS(
+    "object-fit",
+    "cover",
+  );
   const otherContext = await browser.newContext(),
     other = await otherContext.newPage();
   await other.goto(
     `http://localhost:5174/?remote=${session.id}&code=${session.code}`,
   );
-  await other.getByRole("button", { name: "Connect to the light" }).click();
+  await other
+    .getByRole("button", { name: "Connect to the light", exact: true })
+    .click();
   await expect(other.getByRole("alert")).toContainText("already controlling");
   // Force the optional video connection down: controls must still use RTDB.
   await phone.evaluate(() => {
@@ -84,17 +112,23 @@ test("exclusive phone lease, real WebRTC camera transfer, fallback controls, hos
     .toBe(0.22);
   await page.evaluate(() => (window as any).__feedback.hostSession.release());
   await expect(
-    phone.getByRole("button", { name: "Connect to the light" }),
+    phone.getByRole("button", { name: "Connect to the light", exact: true }),
   ).toBeVisible();
-  await other.getByRole("button", { name: "Connect to the light" }).click();
+  await other
+    .getByRole("button", { name: "Connect to the light", exact: true })
+    .click();
   await expect(
     other.getByRole("button", { name: "Capture", exact: true }),
   ).toBeVisible();
-  await other.getByRole("button", { name: "Release the instrument" }).click();
+  await other
+    .getByRole("button", { name: "Release the instrument", exact: true })
+    .click();
   await page.evaluate(() =>
     (window as any).__feedback.hostSession.refreshCode(),
   );
-  await phone.getByRole("button", { name: "Connect to the light" }).click();
+  await phone
+    .getByRole("button", { name: "Connect to the light", exact: true })
+    .click();
   await expect(phone.getByRole("alert")).toContainText("expired");
   await context.close();
   await otherContext.close();

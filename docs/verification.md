@@ -4,6 +4,15 @@ Measured on 11 September 2026 on the available Apple M2 Max. For the subsequent 
 
 ## Automated checks
 
+### Fractal controls — 12 September 2026
+
+- 14 unit tests, 15 local Chromium tests, and 6 Firebase emulator rule tests pass. App, Functions, and MCP builds pass.
+- Kaleidoscope and Branches each run for 7,200 simulation frames at 60 fps, sampled every 120 frames. Every sample retains luminance and spatial detail without excessive clipping. Disconnecting the source and reducing Contrast and Balance still produces deliberate extinction.
+- Motor checks cover independent camera and screen speeds, reversal, stopping without an angle jump, consistent integration at 24/30/60 fps, frozen phases, and saved-state restoration. Separate rendered-image comparisons verify that each of the three motors affects the picture with a still source.
+- Desktop and 390-pixel mobile layouts were visually checked. The main shelf exposes Contrast and all three rotation controls. The phone fallback accepts speeds through ±30°/s while retaining the existing limits on other controls.
+
+### Earlier installation checks
+
 - TypeScript checks cover the React app, Firebase Functions, and Node MCP adapter. The production Vite build succeeds.
 - Six graph/command unit tests cover causal routing, socket validity, all six presets, atomic rejection, and gesture interpolation.
 - Ten local Chromium tests cover optical unity/decay/saturation, coupled-loop order independence, mirrored paths, precision fallback and memory limits, calibration isolation, exact same-device checkpoint restoration, image fitting, literal Unicode, GIF disposal/timing/seeking, video seeking, recording, and camera-to-still restoration.

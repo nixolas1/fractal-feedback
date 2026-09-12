@@ -1,11 +1,14 @@
 import { useRef, useState, useEffect, type PointerEvent } from "react";
-import type { MacroKey, Macros } from "../core/model";
+import { ROTATION_MACROS, type MacroKey, type Macros } from "../core/model";
+import { ControlHelp } from "./ControlHelp";
 export function XYPad({
   values,
   onChange,
+  touchHelp = false,
 }: {
   values: Pick<Macros, "x" | "y">;
   onChange: (key: MacroKey, value: number) => void;
+  touchHelp?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   function move(e: PointerEvent<HTMLDivElement>) {
@@ -71,7 +74,15 @@ export function XYPad({
           onChange={(e) => onChange("y", +e.target.value)}
         />
       </div>
-      <span>Move the camera</span>
+      <span className="xy-caption">
+        Move the camera
+        {touchHelp && (
+          <ControlHelp
+            label="Move the camera"
+            description="Drag your finger around the pad to move the viewpoint left, right, up, or down inside the artwork. Double-tap the pad to return to the center."
+          />
+        )}
+      </span>
     </div>
   );
 }
@@ -85,6 +96,7 @@ export function Slider({
   hint,
   unit = "",
   compact = false,
+  touchHelp = false,
 }: {
   label: string;
   value: number;
@@ -95,7 +107,9 @@ export function Slider({
   hint?: string;
   unit?: string;
   compact?: boolean;
+  touchHelp?: boolean;
 }) {
+  const Container = touchHelp ? "div" : "label";
   const initial = useRef<{ x: number; value: number } | null>(null);
   const decimals = Math.min(7, Math.max(0, -Math.floor(Math.log10(step))));
   const [draft, setDraft] = useState(String(value));
@@ -112,12 +126,20 @@ export function Slider({
     setEditing(false);
   }
   return (
-    <label
+    <Container
       className={`slider-control ${compact ? "compact" : ""}`}
       title={hint}
     >
       <span className="slider-heading">
-        <span>{label}</span>
+        <span className={touchHelp ? "slider-label-help" : undefined}>
+          {label}
+          {touchHelp && hint && (
+            <ControlHelp
+              label={label}
+              description={`${hint}. Drag the slider, or tap the number to enter a precise value.`}
+            />
+          )}
+        </span>
         <input
           aria-label={`${label} value`}
           className="value-input"
@@ -193,7 +215,54 @@ export function Slider({
         <i />
         <i />
       </span>
-    </label>
+    </Container>
+  );
+}
+export function RotationControls({
+  values,
+  dual,
+  onChange,
+  touchHelp = false,
+}: {
+  values: Macros;
+  dual: boolean;
+  onChange: (key: MacroKey, value: number) => void;
+  touchHelp?: boolean;
+}) {
+  return (
+    <section className="rotation-controls" aria-label="Continuous rotation">
+      <div className="rotation-caption">
+        <span>Continuous rotation</span>
+        <small>Negative reverses · 0 stops</small>
+      </div>
+      <div className="rotation-bank">
+        {ROTATION_MACROS.map((m) =>
+          m.key === "cameraBSpin" && !dual ? (
+            <div className="rotation-unavailable" key={m.key}>
+              <span>Camera B</span>
+              <small>Choose Kaleidoscope or Mutual</small>
+            </div>
+          ) : (
+            <Slider
+              key={m.key}
+              label={m.label}
+              value={values[m.key]}
+              min={m.min}
+              max={m.max}
+              step={m.step}
+              unit={m.unit}
+              hint={
+                touchHelp && m.key !== "cameraSpin"
+                  ? `${m.hint}; negative values reverse direction and 0 stops rotation`
+                  : m.hint
+              }
+              touchHelp={touchHelp}
+              onChange={(value) => onChange(m.key, value)}
+            />
+          ),
+        )}
+      </div>
+    </section>
   );
 }
 export function Mark({ size = 30 }: { size?: number }) {
@@ -245,7 +314,7 @@ export function PresetGlyph({ id, color }: { id: string; color: string }) {
             opacity={1 - i * 0.15}
           />
         ))
-      ) : id === "fold" ? (
+      ) : id === "fold" || id === "kaleidoscope" ? (
         [0, 1, 2, 3, 4, 5].map((i) => (
           <ellipse
             key={i}
@@ -255,6 +324,15 @@ export function PresetGlyph({ id, color }: { id: string; color: string }) {
             ry="19"
             stroke="currentColor"
             transform={`rotate(${i * 30} 24 24)`}
+          />
+        ))
+      ) : id === "branches" ? (
+        [0, 1, 2, 3].map((i) => (
+          <path
+            key={i}
+            d="M 24 5 L 43 39 L 5 39 Z"
+            stroke="currentColor"
+            transform={`translate(${24 * (1 - 0.7 ** i)} ${24 * (1 - 0.7 ** i)}) scale(${0.7 ** i})`}
           />
         ))
       ) : id === "mutual" ? (

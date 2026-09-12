@@ -84,7 +84,7 @@ test("phone layout fits a narrow touch viewport and unavailable sensors keep tou
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/?remote=demo&code=demo");
   await expect(
-    page.getByRole("button", { name: "Connect to the light" }),
+    page.getByRole("button", { name: "Connect to the light", exact: true }),
   ).toBeVisible();
   expect(
     await page.evaluate(
