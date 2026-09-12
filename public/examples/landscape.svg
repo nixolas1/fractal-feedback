@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+<defs><linearGradient id="sky" x2="0" y2="1"><stop stop-color="#152f4c"/><stop offset=".65" stop-color="#e2a881"/><stop offset="1" stop-color="#f7cea5"/></linearGradient><linearGradient id="water" x2="0" y2="1"><stop stop-color="#b69f8a"/><stop offset="1" stop-color="#254d68"/></linearGradient><linearGradient id="hill" x2="1" y2="1"><stop stop-color="#1b4a55"/><stop offset="1" stop-color="#0a202a"/></linearGradient></defs>
+<rect width="1600" height="1000" fill="url(#sky)"/><circle cx="1030" cy="320" r="132" fill="#f9d9a6"/>
+<path d="M0 530 90 462 180 490 302 373 450 455 550 359 745 535 930 470 1100 552 1305 428 1470 509 1600 443V1000H0Z" fill="#385564"/>
+<path d="M0 601 146 530 300 590 526 472 759 622 930 575 1190 606 1450 520 1600 613V1000H0Z" fill="#254c58"/>
+<path d="M0 697C290 641 420 609 690 634S1210 683 1600 602V1000H0Z" fill="url(#water)"/>
+<g fill="none" stroke="#d3b694" stroke-width="3" opacity=".4"><path d="M535 713H945M707 739H1150M417 764H754M832 793H1391M533 827H1104M150 866H602M1022 892H1520M393 939H880"/></g>
+<path d="M0 650C256 576 341 641 511 704S621 789 773 828 902 928 998 1000H0Z" fill="url(#hill)"/>
+<g fill="#102e35"><path d="m166 521-64 142h128ZM166 467l-49 140h98Z"/><path d="m332 594-71 164h142ZM332 538l-54 151h108Z"/><path d="m491 699-61 146h122ZM491 638l-46 139h92Z"/></g>
+</svg>

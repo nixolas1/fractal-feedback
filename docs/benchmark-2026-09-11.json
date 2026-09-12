@@ -1,0 +1,152 @@
+{
+  "date": "2026-09-11T19:25:34.448Z",
+  "browser": "153.0.8010.12",
+  "method": "10 one-second samples after 2 seconds warmup. A separate core soak was also running.",
+  "errors": [],
+  "results": [
+    {
+      "instrument": "Drift",
+      "requestedWidth": 1920,
+      "width": 1920,
+      "height": 1080,
+      "historyWidth": 480,
+      "precision": "High precision",
+      "memoryMB": 157,
+      "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max, Unspecified Version)",
+      "meanFPS": 60.00236100408574,
+      "minFPS": 60
+    },
+    {
+      "instrument": "Fold",
+      "requestedWidth": 1920,
+      "width": 1920,
+      "height": 1080,
+      "historyWidth": 480,
+      "precision": "High precision",
+      "memoryMB": 189,
+      "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max, Unspecified Version)",
+      "meanFPS": 60.00295110995158,
+      "minFPS": 60
+    },
+    {
+      "instrument": "Mutual",
+      "requestedWidth": 1920,
+      "width": 1920,
+      "height": 1080,
+      "historyWidth": 480,
+      "precision": "High precision",
+      "memoryMB": 378,
+      "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max, Unspecified Version)",
+      "meanFPS": 60.002754278969135,
+      "minFPS": 60
+    },
+    {
+      "instrument": "Captive",
+      "requestedWidth": 1920,
+      "width": 1920,
+      "height": 1080,
+      "historyWidth": 480,
+      "precision": "High precision",
+      "memoryMB": 157,
+      "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max, Unspecified Version)",
+      "meanFPS": 60.002557641527424,
+      "minFPS": 60
+    },
+    {
+      "instrument": "Time loom",
+      "requestedWidth": 1920,
+      "width": 1920,
+      "height": 1080,
+      "historyWidth": 480,
+      "precision": "High precision",
+      "memoryMB": 235,
+      "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max, Unspecified Version)",
+      "meanFPS": 60.00255775764809,
+      "minFPS": 59.998032851381666
+    },
+    {
+      "instrument": "Emulsion",
+      "requestedWidth": 1920,
+      "width": 1920,
+      "height": 1080,
+      "historyWidth": 480,
+      "precision": "High precision",
+      "memoryMB": 220,
+      "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max, Unspecified Version)",
+      "meanFPS": 60.002360810544914,
+      "minFPS": 60
+    },
+    {
+      "instrument": "Drift",
+      "requestedWidth": 3840,
+      "width": 3840,
+      "height": 2160,
+      "historyWidth": 480,
+      "precision": "High precision",
+      "memoryMB": 537,
+      "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max, Unspecified Version)",
+      "meanFPS": 60.00235136348634,
+      "minFPS": 59.99400059993965
+    },
+    {
+      "instrument": "Fold",
+      "requestedWidth": 3840,
+      "width": 3840,
+      "height": 2160,
+      "historyWidth": 480,
+      "precision": "High precision",
+      "memoryMB": 663,
+      "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max, Unspecified Version)",
+      "meanFPS": 60.00176087053897,
+      "minFPS": 59.99400059993965
+    },
+    {
+      "instrument": "Mutual",
+      "requestedWidth": 3840,
+      "width": 2774,
+      "height": 1560,
+      "historyWidth": 96,
+      "precision": "High precision",
+      "memoryMB": 663,
+      "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max, Unspecified Version)",
+      "meanFPS": 60.00236092666567,
+      "minFPS": 59.99803285138123
+    },
+    {
+      "instrument": "Captive",
+      "requestedWidth": 3840,
+      "width": 3840,
+      "height": 2160,
+      "historyWidth": 480,
+      "precision": "High precision",
+      "memoryMB": 537,
+      "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max, Unspecified Version)",
+      "meanFPS": 59.803393921599856,
+      "minFPS": 59
+    },
+    {
+      "instrument": "Time loom",
+      "requestedWidth": 3840,
+      "width": 3840,
+      "height": 2160,
+      "historyWidth": 480,
+      "precision": "High precision",
+      "memoryMB": 757,
+      "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max, Unspecified Version)",
+      "meanFPS": 60.00196734212079,
+      "minFPS": 60
+    },
+    {
+      "instrument": "Emulsion",
+      "requestedWidth": 3840,
+      "width": 3840,
+      "height": 2160,
+      "historyWidth": 244,
+      "precision": "High precision",
+      "memoryMB": 767,
+      "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max, Unspecified Version)",
+      "meanFPS": 60.002360810545085,
+      "minFPS": 60
+    }
+  ]
+}

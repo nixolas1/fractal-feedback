@@ -1,0 +1,22 @@
+{
+  "date": "2026-09-11T19:24:44.107Z",
+  "method": "Two Chromium contexts on the same M2 Max, Firebase emulators. Node clock measures CDP dispatch through host command commit and callback. Includes automation overhead; not physical phone/network latency.",
+  "results": [
+    {
+      "transport": "WebRTC data channel",
+      "samples": 30,
+      "meanMs": 3.5149723666666737,
+      "p95Ms": 9.01379199999974,
+      "minMs": 1.4964580000000751,
+      "maxMs": 12.54825000000028
+    },
+    {
+      "transport": "RTDB fallback",
+      "samples": 30,
+      "meanMs": 109.54216803333335,
+      "p95Ms": 114.19654199999968,
+      "minMs": 104.8617920000006,
+      "maxMs": 114.5713340000002
+    }
+  ]
+}

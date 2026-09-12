@@ -1,0 +1,77 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "sessions": {
+      ".indexOn": ["expires"],
+      "$id": {
+        ".read": "auth != null && root.child('sessions').child($id).child('owner').val() == auth.uid",
+        "hostOnline": {
+          ".write": "auth != null && data.parent().child('owner').val() == auth.uid",
+          ".validate": "newData.isBoolean()"
+        },
+        "status": {
+          ".write": "auth != null && data.parent().child('owner').val() == auth.uid",
+          ".validate": "newData.hasChildren(['scene','macros','feed','frozen','revision','hostAt'])",
+          ".read": "auth != null && root.child('sessions').child($id).child('controller/uid').val() == auth.uid && root.child('sessions').child($id).child('controller/expires').val() > now"
+        },
+        "signals": {
+          "$epoch": {
+            ".read": "(auth != null && root.child('sessions').child($id).child('owner').val() == auth.uid) || (auth != null && root.child('sessions').child($id).child('controller/uid').val() == auth.uid && root.child('sessions').child($id).child('controller/expires').val() > now)",
+            "offer": {
+              ".write": "auth != null && root.child('sessions').child($id).child('owner').val() == auth.uid"
+            },
+            "answer": {
+              ".write": "auth != null && root.child('sessions').child($id).child('controller/uid').val() == auth.uid && root.child('sessions').child($id).child('controller/expires').val() > now"
+            },
+            "remoteOffer": {
+              ".write": "auth != null && root.child('sessions').child($id).child('controller/uid').val() == auth.uid && root.child('sessions').child($id).child('controller/expires').val() > now"
+            },
+            "remoteAnswer": {
+              ".write": "auth != null && root.child('sessions').child($id).child('owner').val() == auth.uid"
+            },
+            "hostCandidates": {
+              ".write": "auth != null && root.child('sessions').child($id).child('owner').val() == auth.uid"
+            },
+            "remoteCandidates": {
+              ".write": "auth != null && root.child('sessions').child($id).child('controller/uid').val() == auth.uid && root.child('sessions').child($id).child('controller/expires').val() > now"
+            }
+          }
+        },
+        "samples": {
+          ".write": "auth != null && root.child('sessions').child($id).child('controller/uid').val() == auth.uid && root.child('sessions').child($id).child('controller/expires').val() > now",
+          ".validate": "newData.hasChildren(['uid','epoch','seq','type','values']) && newData.child('uid').val() == auth.uid && newData.child('epoch').val() == root.child('sessions').child($id).child('controller/epoch').val() && newData.child('seq').isNumber() && (newData.child('type').val() == 'macros' || newData.child('type').val() == 'sensors')",
+          "values": {
+            "$key": {
+              ".validate": "newData.isNumber() && newData.val() >= -1 && newData.val() <= 1"
+            }
+          }
+        },
+        "actions": {
+          "$action": {
+            ".write": "auth != null && ((!newData.exists() && root.child('sessions').child($id).child('owner').val() == auth.uid) || (!data.exists() && root.child('sessions').child($id).child('controller/uid').val() == auth.uid && root.child('sessions').child($id).child('controller/expires').val() > now))",
+            ".validate": "newData.hasChildren(['id','uid','epoch','type']) && newData.child('uid').val() == auth.uid && newData.child('epoch').val() == root.child('sessions').child($id).child('controller/epoch').val()"
+          }
+        },
+        "acks": {
+          ".write": "auth != null && root.child('sessions').child($id).child('owner').val() == auth.uid",
+          ".read": "auth != null && root.child('sessions').child($id).child('controller/uid').val() == auth.uid && root.child('sessions').child($id).child('controller/expires').val() > now"
+        },
+        "inbox": {
+          "$command": {
+            ".write": "auth != null && root.child('sessions').child($id).child('owner').val() == auth.uid && !newData.exists()"
+          }
+        },
+        "outbox": {
+          "$command": {
+            ".write": "auth != null && root.child('sessions').child($id).child('owner').val() == auth.uid",
+            ".validate": "newData.hasChildren(['ok','finished','actor'])"
+          }
+        },
+        "controller": {
+          ".read": "(auth != null && root.child('sessions').child($id).child('owner').val() == auth.uid) || (auth != null && root.child('sessions').child($id).child('controller/uid').val() == auth.uid && root.child('sessions').child($id).child('controller/expires').val() > now)"
+        }
+      }
+    }
+  }
+}

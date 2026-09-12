@@ -1,0 +1,70 @@
+{
+  "started": "2026-09-11T18:39:08.225Z",
+  "durationSeconds": 3603.567,
+  "completed": true,
+  "method": "Static optical-core build. All six instruments rotated once per minute at 1920 × 1080; sampled every 10 seconds. Later preset, balance and media edits were verified separately. FPS samples exclude brief deliberate context interruptions.",
+  "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max, Unspecified Version)",
+  "precision": "High precision",
+  "sampleCount": 360,
+  "fps": {
+    "mean": 59.99990941634894,
+    "min": 59,
+    "max": 60.00983767830792
+  },
+  "jsHeapBytes": {
+    "first": 3346988,
+    "last": 4442213,
+    "min": 2208553,
+    "max": 7028730
+  },
+  "allocatedRenderTargetMB": {
+    "min": 157,
+    "max": 378
+  },
+  "contextEvents": [
+    {
+      "type": "lost",
+      "at": 1789152548713
+    },
+    {
+      "type": "restored",
+      "at": 1789152550229
+    },
+    {
+      "type": "lost",
+      "at": 1789153149276
+    },
+    {
+      "type": "restored",
+      "at": 1789153150807
+    },
+    {
+      "type": "lost",
+      "at": 1789153749863
+    },
+    {
+      "type": "restored",
+      "at": 1789153751387
+    },
+    {
+      "type": "lost",
+      "at": 1789154350534
+    },
+    {
+      "type": "restored",
+      "at": 1789154352050
+    },
+    {
+      "type": "lost",
+      "at": 1789154951209
+    },
+    {
+      "type": "restored",
+      "at": 1789154952739
+    }
+  ],
+  "completedContextRecoveries": 5,
+  "javascriptErrors": [],
+  "webglErrors": [],
+  "limitations": "Measures JS heap and accounted render-target allocations, not total browser process or GPU driver memory. Context restoration reseeds the optical simulation; it does not recover discarded unsaved textures."
+}

@@ -1,0 +1,6 @@
+{
+  "projects": {
+    "default": "fractal-feedback",
+    "emulator": "demo-feedback"
+  }
+}

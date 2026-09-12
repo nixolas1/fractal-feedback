@@ -1,0 +1,16 @@
+[
+  {
+    "origin": [
+      "https://fractal-feedback.web.app",
+      "https://fractal-feedback.firebaseapp.com"
+    ],
+    "method": ["GET", "HEAD", "PUT", "POST"],
+    "responseHeader": [
+      "Content-Type",
+      "Content-Length",
+      "Range",
+      "Content-Range"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]

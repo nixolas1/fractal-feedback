@@ -1,0 +1,9 @@
+{
+  "date": "2026-09-12T07:37:58.964Z",
+  "origin": "https://fractal-feedback.web.app",
+  "phone": "Direct WebRTC, controls, optional camera action and release passed in two desktop browser contexts.",
+  "mcp": "Real stdio MCP read, scene load, signed asset upload/import, capture, freeze and save passed.",
+  "cloud": "Browser Storage upload/CORS, private Firestore metadata, real GCS signed URLs, shared viewer/remix access and share revocation passed.",
+  "errors": [],
+  "completed": true
+}
