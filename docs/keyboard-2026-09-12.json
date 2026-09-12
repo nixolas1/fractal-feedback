@@ -1,0 +1,12 @@
+{
+  "date": "2026-09-12T13:24:31.997Z",
+  "origin": "https://fractal-feedback.web.app",
+  "sliderValue": 0.106639999985695,
+  "sliderExpected": 0.10720000000000002,
+  "repeatedKeydowns": 50,
+  "cameraADelta": 0.0687300000071526,
+  "cameraBDelta": -0.0696299999892712,
+  "releaseAndBlurStop": true,
+  "errors": [],
+  "completed": true
+}

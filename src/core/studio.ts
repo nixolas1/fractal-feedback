@@ -14,6 +14,7 @@ import { OpticalEngine, type Metrics } from "../engine/renderer";
 import { SourceManager, type SourceAsset } from "../engine/source";
 import { storage, download, type Moment } from "../services/storage";
 import { CanvasRecorder } from "../services/recorder";
+import type { CameraMovement } from "../services/keyboard";
 type State = {
   scene: Scene;
   revision: number;
@@ -26,7 +27,14 @@ type State = {
   assets: SourceAsset[];
   moments: Moment[];
   drawer:
-    "sources" | "gallery" | "patch" | "phone" | "settings" | "agents" | null;
+    | "sources"
+    | "gallery"
+    | "patch"
+    | "phone"
+    | "settings"
+    | "agents"
+    | "keyboard"
+    | null;
   calibrating: boolean;
   recording: boolean;
   recordingGestures: boolean;
@@ -40,6 +48,7 @@ class Studio {
   recorder = new CanvasRecorder();
   private calibrationEpoch = 0;
   private gestureStart = 0;
+  private impulseSource?: string;
   private balanceTimer?: ReturnType<typeof setTimeout>;
   private scheduleBalance(ms: number) {
     clearTimeout(this.balanceTimer);
@@ -95,7 +104,14 @@ class Studio {
   mount(canvas: HTMLCanvasElement) {
     try {
       this.engine = new OpticalEngine(canvas, this.state.scene, this.sources);
-      this.engine.onMetrics = (metrics) => this.update({ metrics });
+      this.engine.onFrame = () => this.recorder.frame();
+      this.engine.onMetrics = (metrics) => {
+        if (this.state.metrics?.targetFps === 60 && metrics.targetFps === 30)
+          this.message(
+            "Using 30 fps while keeping the selected picture resolution.",
+          );
+        this.update({ metrics });
+      };
       this.engine.onError = (error) => this.update({ error, frozen: true });
       this.engine.onLost = () => this.update({ lost: true });
       this.engine.onRestored = () => {
@@ -121,13 +137,23 @@ class Studio {
   commit(scene: Scene) {
     if (this.state.busy)
       throw new Error("Wait for the current save or restore to finish.");
+    if (
+      this.recorder.active &&
+      JSON.stringify(scene.simulation) !==
+        JSON.stringify(this.state.scene.simulation)
+    )
+      throw new Error("Stop recording before changing picture settings.");
     if (scene.mode !== this.state.scene.mode) {
       this.calibrationEpoch++;
       clearTimeout(this.balanceTimer);
       this.update({ calibrating: false });
     }
     this.engine?.configure(scene);
-    this.update({ scene: clone(scene), revision: this.state.revision + 1 });
+    this.update({
+      scene: clone(scene),
+      revision: this.state.revision + 1,
+      metrics: this.engine ? { ...this.engine.metrics } : this.state.metrics,
+    });
   }
   commands(commands: ControlCommand[], expectedRevision = this.state.revision) {
     if (expectedRevision !== this.state.revision)
@@ -159,6 +185,15 @@ class Studio {
     scene.mode = this.state.scene.mode;
     scene.source = this.state.scene.source;
     scene.assets = [...this.state.scene.assets];
+    if (this.state.scene.screenImage) {
+      scene.screenImage = { ...this.state.scene.screenImage };
+      if (
+        !scene.graph.nodes.some(
+          (n) => n.kind === "screen" && n.id === scene.screenImage!.target,
+        )
+      )
+        scene.screenImage.target = "all";
+    }
     if (scene.source !== "seed") scene.feed = true;
     this.commit(scene);
     this.engine?.reset();
@@ -180,7 +215,115 @@ class Studio {
     this.message("Source captured. The image now lives in the loop.");
   }
   inject() {
-    if (this.engine) this.engine.pulse = 8;
+    if (this.engine) {
+      this.engine.pulse = Math.round(this.engine.metrics.targetFps * 0.2);
+      this.engine.impulse = this.engine.pulse;
+    }
+  }
+  position(camera: "a" | "b", axis: "x" | "y", value: number) {
+    const commands: ControlCommand[] = this.state.scene.graph.nodes
+      .filter(
+        (n) => n.kind === "optics" && n.id.endsWith("-b") === (camera === "b"),
+      )
+      .map((n) => ({
+        type: "parameter",
+        node: n.id,
+        key: axis,
+        value: Math.max(-0.5, Math.min(0.5, value)),
+      }));
+    if (commands.length) this.commands(commands);
+  }
+  moveCameras(movement: CameraMovement) {
+    const commands: ControlCommand[] = [];
+    for (const node of this.state.scene.graph.nodes) {
+      if (node.kind !== "optics") continue;
+      const delta = movement[node.id.endsWith("-b") ? "b" : "a"];
+      for (const axis of ["x", "y"] as const) {
+        const value = Math.max(
+          -0.5,
+          Math.min(0.5, node.params[axis] + delta[axis]),
+        );
+        if (value !== node.params[axis])
+          commands.push({ type: "parameter", node: node.id, key: axis, value });
+      }
+    }
+    if (commands.length) this.commands(commands);
+  }
+  screenImage(patch: Partial<NonNullable<Scene["screenImage"]>>) {
+    const scene = clone(this.state.scene);
+    scene.screenImage = {
+      source: scene.source,
+      target: "all",
+      contrast: 1,
+      ...scene.screenImage,
+      ...patch,
+    };
+    if (scene.screenImage.source !== "seed")
+      scene.assets = [...new Set([...scene.assets, scene.screenImage.source])];
+    this.commit(validateScene(scene));
+  }
+  async loadScreenImage(file: File) {
+    if (!file.type.startsWith("image/"))
+      throw new Error("Choose an image for the screen.");
+    const asset = await this.sources.addFile(file, file.name);
+    await storage.putAsset(asset);
+    this.screenImage({ source: asset.id });
+    this.update({
+      assets: [...this.sources.items.values()].map((i) => i.asset),
+    });
+    this.message("Image ready. Press Space to put it on the screen.");
+  }
+  injectScreenImage() {
+    if (this.state.busy) return;
+    this.engine?.injectScreen(
+      this.state.scene.screenImage ?? {
+        source: this.state.scene.source,
+        target: "all",
+        contrast: 1,
+      },
+    );
+    clearTimeout(this.balanceTimer);
+    this.calibrationEpoch++;
+    this.update({ calibrating: false });
+    this.message(
+      this.state.frozen
+        ? "Image queued. Press P to resume the loop."
+        : "Image on screen. The loop captures its light.",
+    );
+  }
+  async injectImage(asset: SourceAsset) {
+    // The phone preloads the photo. A shake changes the source at a frame
+    // boundary without clearing feedback, changing contrast, or calibrating.
+    const scene = clone(this.state.scene);
+    scene.source = asset.id;
+    scene.screenImage = {
+      source: asset.id,
+      target: scene.screenImage?.target ?? "all",
+      contrast: 1,
+    };
+    const discard =
+      this.impulseSource &&
+      this.impulseSource !== asset.id &&
+      !scene.graph.nodes.some((n) => n.sourceId === this.impulseSource)
+        ? this.impulseSource
+        : undefined;
+    if (discard) scene.assets = scene.assets.filter((id) => id !== discard);
+    scene.assets = [...new Set([...scene.assets, asset.id])];
+    scene.feed = false;
+    this.commit(scene);
+    if (discard) this.sources.remove(discard);
+    this.impulseSource = asset.id;
+    clearTimeout(this.balanceTimer);
+    this.calibrationEpoch++;
+    this.update({
+      assets: [...this.sources.items.values()].map((i) => i.asset),
+      calibrating: false,
+    });
+    this.inject();
+    this.injectScreenImage();
+    this.message(
+      "Phone image injected. Its captured light continues in the loop.",
+    );
   }
   reset() {
     if (this.state.busy) return;
@@ -378,8 +521,9 @@ class Studio {
     } else {
       await this.recorder.start(
         this.engine.canvas,
-        this.state.scene.simulation.fps,
+        this.engine.metrics.targetFps,
         audio,
+        true,
       );
       this.update({ recording: true });
     }

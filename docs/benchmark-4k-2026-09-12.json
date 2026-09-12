@@ -1,0 +1,120 @@
+{
+  "date": "2026-09-12T09:46:13.756Z",
+  "browser": "153.0.8010.12",
+  "method": "Native 4K, 2 seconds warmup plus 6 one-second render samples per preset. Separate 5-second Kaleidoscope recordings at 60 and 30 fps decoded in Chromium: dimensions, duration, totalVideoFrames and droppedVideoFrames from getVideoPlaybackQuality(). No other browser tests running.",
+  "results": [
+    {
+      "preset": "drift",
+      "width": 3840,
+      "height": 2160,
+      "targetFps": 60,
+      "meanFPS": 60.00229526472472,
+      "minFPS": 59.998032851381936,
+      "memoryMB": 537,
+      "precision": "High precision",
+      "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max, Unspecified Version)"
+    },
+    {
+      "preset": "fold",
+      "width": 3840,
+      "height": 2160,
+      "targetFps": 60,
+      "meanFPS": 60.00163948401778,
+      "minFPS": 59.99803285138188,
+      "memoryMB": 663,
+      "precision": "High precision",
+      "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max, Unspecified Version)"
+    },
+    {
+      "preset": "mutual",
+      "width": 3840,
+      "height": 2160,
+      "targetFps": 60,
+      "meanFPS": 60.0019673421208,
+      "minFPS": 60,
+      "memoryMB": 1327,
+      "precision": "High precision",
+      "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max, Unspecified Version)"
+    },
+    {
+      "preset": "captive",
+      "width": 3840,
+      "height": 2160,
+      "targetFps": 60,
+      "meanFPS": 60.00163961305132,
+      "minFPS": 60,
+      "memoryMB": 537,
+      "precision": "High precision",
+      "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max, Unspecified Version)"
+    },
+    {
+      "preset": "time-loom",
+      "width": 3840,
+      "height": 2160,
+      "targetFps": 60,
+      "meanFPS": 60.00295117446522,
+      "minFPS": 60,
+      "memoryMB": 757,
+      "precision": "High precision",
+      "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max, Unspecified Version)"
+    },
+    {
+      "preset": "emulsion",
+      "width": 3840,
+      "height": 2160,
+      "targetFps": 60,
+      "meanFPS": 60.003278903534664,
+      "minFPS": 60,
+      "memoryMB": 790,
+      "precision": "High precision",
+      "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max, Unspecified Version)"
+    },
+    {
+      "preset": "kaleidoscope",
+      "width": 3840,
+      "height": 2160,
+      "targetFps": 60,
+      "meanFPS": 60.00196734212084,
+      "minFPS": 60,
+      "memoryMB": 1327,
+      "precision": "High precision",
+      "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max, Unspecified Version)"
+    },
+    {
+      "preset": "branches",
+      "width": 3840,
+      "height": 2160,
+      "targetFps": 60,
+      "meanFPS": 60.00065578070695,
+      "minFPS": 60,
+      "memoryMB": 663,
+      "precision": "High precision",
+      "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max, Unspecified Version)"
+    }
+  ],
+  "recordings": [
+    {
+      "requestedFps": 60,
+      "mime": "video/mp4;codecs=avc1.640033",
+      "renderFps": 60,
+      "width": 3840,
+      "height": 2160,
+      "duration": 4.9986,
+      "frames": 292,
+      "dropped": 0,
+      "fps": 58.41635657984236
+    },
+    {
+      "requestedFps": 30,
+      "mime": "video/mp4;codecs=avc1.640033",
+      "renderFps": 30,
+      "width": 3840,
+      "height": 2160,
+      "duration": 4.964367,
+      "frames": 149,
+      "dropped": 8,
+      "fps": 30.013897038635537
+    }
+  ],
+  "errors": []
+}

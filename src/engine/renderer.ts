@@ -4,6 +4,7 @@ import {
   clone,
   interpolateAutomation,
   MACROS,
+  DISTANCE_MACROS,
   ROTATION_MACROS,
   validateScene,
   type Scene,
@@ -17,6 +18,7 @@ import { kindNumbers } from "./shaders";
 import { SourceManager } from "./source";
 export type Metrics = {
   fps: number;
+  targetFps: number;
   frame: number;
   mean: number;
   energy: number;
@@ -39,15 +41,26 @@ export type BufferRecord = {
 };
 export type EngineState = {
   frame: number;
+  time?: number;
   heads: Record<string, number>;
   front: Record<string, number>;
   pulse: number;
+  impulse?: number;
+  screenInjection?: {
+    source: string;
+    target: string;
+    contrast: number;
+    remaining: number;
+  };
   rotations?: Record<string, number>;
 };
 type NodeMemory = { targets: Target[]; front: number; head: number };
 const clamp = (x: number, a: number, b: number) => Math.max(a, Math.min(b, x));
 const macroBounds = new Map(
-  [...MACROS, ...ROTATION_MACROS].map((spec) => [spec.key, spec]),
+  [...MACROS, ...DISTANCE_MACROS, ...ROTATION_MACROS].map((spec) => [
+    spec.key,
+    spec,
+  ]),
 );
 const uniformNames: Record<string, string> = {
   mix: "mixAmount",
@@ -77,9 +90,13 @@ export class OpticalEngine {
   outputs = new Map<string, WebGLTexture>();
   sources: SourceManager;
   frame = 0;
+  private time = 0;
+  private slowReports = 0;
   frozen = false;
   lost = false;
   pulse = 36;
+  impulse = 0;
+  private screenInjection?: NonNullable<EngineState["screenInjection"]>;
   metrics: Metrics;
   sensor: SensorSample = {};
   sensorAt = 0;
@@ -94,6 +111,7 @@ export class OpticalEngine {
   private ownedSources: boolean;
   private disposed = false;
   onMetrics?: (metrics: Metrics) => void;
+  onFrame?: () => void;
   onLost?: () => void;
   onRestored?: () => void;
   onError?: (message: string) => void;
@@ -113,6 +131,7 @@ export class OpticalEngine {
       ext = g.getExtension("WEBGL_debug_renderer_info");
     this.metrics = {
       fps: 0,
+      targetFps: scene.simulation.fps,
       frame: 0,
       mean: 0,
       energy: 0,
@@ -160,9 +179,24 @@ export class OpticalEngine {
       JSON.stringify([
         s.graph.nodes.map((n) => [n.id, n.kind]),
         s.graph.edges,
-        s.simulation,
+        [
+          s.simulation.width,
+          s.simulation.height,
+          s.simulation.historyWidth,
+          s.simulation.memoryBudgetMB,
+        ],
       ]);
     const changed = rebuild || shape(this.scene) !== shape(scene);
+    if (
+      changed ||
+      this.scene.simulation.fps !== scene.simulation.fps ||
+      this.scene.simulation.autoCadence !== scene.simulation.autoCadence
+    ) {
+      this.metrics.targetFps = scene.simulation.fps;
+      this.slowReports = 0;
+      this.framesSince = 0;
+      this.previous = this.reportAt = performance.now();
+    }
     const seedChanged =
       this.scene.graph.nodes.find((n) => n.kind === "source")?.params
         .pattern !==
@@ -172,11 +206,13 @@ export class OpticalEngine {
       candidate.graph.nodes.find((node) => node.id === n.id)!,
     );
     this.sources.retainTextures(
-      new Set(
-        order
+      new Set([
+        ...(scene.screenImage ? [scene.screenImage.source] : []),
+        ...(this.screenInjection ? [this.screenInjection.source] : []),
+        ...order
           .filter((n) => n.kind === "source")
           .map((n) => n.sourceId ?? scene.source),
-      ),
+      ]),
     );
     if (seedChanged)
       this.sources.drawSeed(
@@ -268,7 +304,10 @@ export class OpticalEngine {
       for (const t of m.targets) this.gpu.clear(t);
     }
     this.frame = 0;
+    this.time = 0;
     this.pulse = 36;
+    this.impulse = 0;
+    this.screenInjection = undefined;
     this.rotations.clear();
     this.outputs.clear();
   }
@@ -284,15 +323,31 @@ export class OpticalEngine {
     try {
       if (
         !this.frozen &&
-        now - this.previous >= 1000 / this.scene.simulation.fps - 0.75
+        now - this.previous >= 1000 / this.metrics.targetFps - 0.75
       ) {
-        this.previous = now;
+        const interval = 1000 / this.metrics.targetFps;
+        this.previous +=
+          Math.max(1, Math.floor((now - this.previous + 0.75) / interval)) *
+          interval;
         this.step();
         this.framesSince++;
       }
+      if (this.frozen) this.previous = now;
       if (now - this.reportAt >= 1000) {
         this.measure();
         this.metrics.fps = (this.framesSince * 1000) / (now - this.reportAt);
+        // Keep 4K intact. Sustained missed frames lower cadence, never resolution.
+        const slow =
+          this.scene.simulation.autoCadence &&
+          this.metrics.targetFps === 60 &&
+          this.metrics.fps < 52 &&
+          !this.frozen &&
+          !document.hidden;
+        this.slowReports = slow ? this.slowReports + 1 : 0;
+        if (this.slowReports >= 3) {
+          this.metrics.targetFps = 30;
+          this.slowReports = 0;
+        }
         this.framesSince = 0;
         this.reportAt = now;
         this.onMetrics?.({ ...this.metrics });
@@ -305,7 +360,7 @@ export class OpticalEngine {
   };
   effectiveMacros(): Macros {
     let m = { ...this.scene.macros };
-    const time = this.frame / this.scene.simulation.fps;
+    const time = this.time;
     const lane = this.scene.automation;
     if (lane.playing && lane.duration > 0) {
       const values = interpolateAutomation(
@@ -371,7 +426,7 @@ export class OpticalEngine {
       if (n.kind === "source") {
         const t = this.sources.texture(
           n.sourceId ?? this.scene.source,
-          (this.frame * 1000) / this.scene.simulation.fps,
+          this.time * 1000,
         );
         const target = this.memory.get(n.id)!.targets[0];
         this.gpu.draw(target, 0, [t], { level: n.params.level });
@@ -401,10 +456,12 @@ export class OpticalEngine {
       const target = mem.targets[next];
       const values: Record<string, number> = {
         uFrame: this.frame,
-        uTime: this.frame / this.scene.simulation.fps,
+        uTime: this.time,
         uSeed: this.scene.seed,
         uFeed: this.scene.feed ? 1 : 0,
         uPulse: this.pulse > 0 ? 1 : 0,
+        uImpulse: this.impulse > 0 ? 1 : 0,
+        uImageContrast: 1,
       };
       for (const [key, value] of Object.entries(n.params))
         values[uniformNames[key] ?? key] = value;
@@ -412,6 +469,15 @@ export class OpticalEngine {
       if (n.kind === "screen") {
         values.hue = n.params.hue + m.color * 4.5;
         values.contrast = n.params.contrast * Math.pow(2, m.contrast * 0.18);
+        const injection = this.screenInjection;
+        if (
+          injection &&
+          (injection.target === "all" || injection.target === n.id)
+        ) {
+          inputs[0] = this.sources.texture(injection.source, this.time * 1000);
+          values.uImageContrast = injection.contrast;
+          values.response = 0;
+        }
       }
       const linked = this.scene.linked || !n.id.endsWith("-b");
       if (n.kind === "optics" && linked) {
@@ -419,6 +485,11 @@ export class OpticalEngine {
         values.rotation = n.params.rotation + m.turn * 5;
         values.xOffset = n.params.x + m.x * 0.045;
         values.yOffset = n.params.y + m.y * 0.045;
+      }
+      if (n.kind === "optics") {
+        values.distanceValue /=
+          n.params.screenDistance *
+          (n.id.endsWith("-b") ? m.cameraBDistance : m.cameraDistance);
       }
       if (n.kind === "optics" || n.kind === "screen") {
         const speed =
@@ -431,7 +502,7 @@ export class OpticalEngine {
         // Integrate speed, rather than multiplying elapsed time: changing a motor
         // or stopping it must preserve its current angle. Freeze never advances it.
         const angle =
-          (this.rotations.get(n.id) ?? 0) + speed / this.scene.simulation.fps;
+          (this.rotations.get(n.id) ?? 0) + speed / this.metrics.targetFps;
         const phase = ((((angle + 180) % 360) + 360) % 360) - 180;
         this.rotations.set(n.id, phase);
         values.rotation += phase;
@@ -454,6 +525,7 @@ export class OpticalEngine {
         if (!isSource) {
           values.uFeed = 1;
           values.uPulse = 0;
+          values.uImpulse = 0;
         }
       }
       const allInputs = [...inputs];
@@ -480,8 +552,13 @@ export class OpticalEngine {
     }
     this.outputs = textures;
     this.frame++;
+    this.time += 1 / this.metrics.targetFps;
     this.pulse = Math.max(0, this.pulse - 1);
+    this.impulse = Math.max(0, this.impulse - 1);
+    if (this.screenInjection && --this.screenInjection.remaining <= 0)
+      this.screenInjection = undefined;
     this.metrics.frame = this.frame;
+    this.onFrame?.();
   }
   present() {
     const output = this.order.find((n) => n.kind === "output"),
@@ -497,7 +574,7 @@ export class OpticalEngine {
       else if (n.kind === "source")
         tex = this.sources.texture(
           n.sourceId ?? this.scene.source,
-          (this.frame * 1000) / this.scene.simulation.fps,
+          this.time * 1000,
         );
     }
     if (tex)
@@ -544,10 +621,29 @@ export class OpticalEngine {
     this.scene.feed = false;
     this.pulse = 1;
   }
+  injectScreen(image: { source: string; target: string; contrast: number }) {
+    if (
+      !this.order.some(
+        (n) =>
+          n.kind === "screen" &&
+          (image.target === "all" || n.id === image.target),
+      )
+    )
+      throw new Error("Choose a screen in Sources before injecting the image.");
+    this.screenInjection = {
+      ...image,
+      remaining: Math.max(1, Math.round(this.metrics.targetFps * 0.2)),
+    };
+  }
   state(): EngineState {
     return {
       frame: this.frame,
+      time: this.time,
       pulse: this.pulse,
+      impulse: this.impulse,
+      ...(this.screenInjection
+        ? { screenInjection: { ...this.screenInjection } }
+        : {}),
       rotations: Object.fromEntries(this.rotations),
       heads: Object.fromEntries([...this.memory].map(([k, m]) => [k, m.head])),
       front: Object.fromEntries([...this.memory].map(([k, m]) => [k, m.front])),
@@ -588,8 +684,18 @@ export class OpticalEngine {
     this.gpu.destroy(temp);
   }
   restoreState(state: EngineState) {
+    if (
+      state.time !== undefined &&
+      (!Number.isFinite(state.time) || state.time < 0)
+    )
+      throw new Error("Invalid saved simulation time.");
     this.frame = state.frame;
+    this.time = state.time ?? state.frame / this.scene.simulation.fps;
     this.pulse = state.pulse;
+    this.impulse = state.impulse ?? 0;
+    this.screenInjection = state.screenInjection
+      ? { ...state.screenInjection }
+      : undefined;
     this.rotations = new Map(Object.entries(state.rotations ?? {}));
     for (const [id, mem] of this.memory) {
       const head = state.heads[id] ?? 0,
@@ -685,7 +791,15 @@ export class OpticalEngine {
       optics.reduce(
         (sum, n) =>
           sum +
-          n.params.distance ** 2 *
+          ((n.params.distance +
+            (candidate.linked || !n.id.endsWith("-b")
+              ? candidate.macros.distance * 0.035
+              : 0)) /
+            (n.params.screenDistance *
+              (n.id.endsWith("-b")
+                ? candidate.macros.cameraBDistance
+                : candidate.macros.cameraDistance))) **
+            2 *
             (1 -
               n.params.reflection +
               n.params.reflection * n.params.reflectionScale ** 2),
@@ -705,6 +819,7 @@ export class OpticalEngine {
         );
         probe.configure(candidate);
         probe.pulse = state.frame < 40 ? 12 : 0;
+        probe.impulse = 0;
         const samples: number[] = [];
         for (let i = 0; i < 96; i++) {
           probe.step();

@@ -124,6 +124,10 @@ export const storage = {
         const original = asset.id;
         asset.id = crypto.randomUUID();
         if (savedScene.source === original) savedScene.source = asset.id;
+        if (savedScene.screenImage?.source === original)
+          savedScene.screenImage.source = asset.id;
+        if (state.screenInjection?.source === original)
+          state.screenInjection.source = asset.id;
         for (const node of savedScene.graph.nodes)
           if (node.sourceId === original) node.sourceId = asset.id;
         await db.put("assets", asset);
@@ -305,6 +309,12 @@ export const storage = {
       !state ||
       !Number.isSafeInteger(state.frame) ||
       state.frame < 0 ||
+      (state.time !== undefined &&
+        (!Number.isFinite(state.time) || state.time < 0)) ||
+      (state.impulse !== undefined &&
+        (!Number.isSafeInteger(state.impulse) ||
+          state.impulse < 0 ||
+          state.impulse > 120)) ||
       !state.heads ||
       !state.front
     )
@@ -366,6 +376,10 @@ export const storage = {
         };
         assetIds.push(asset.id);
         if (scene.source === a.id) scene.source = asset.id;
+        if (scene.screenImage?.source === a.id)
+          scene.screenImage.source = asset.id;
+        if (state.screenInjection?.source === a.id)
+          state.screenInjection.source = asset.id;
         scene.graph.nodes.forEach((n) => {
           if (n.sourceId === a.id) n.sourceId = asset.id;
         });

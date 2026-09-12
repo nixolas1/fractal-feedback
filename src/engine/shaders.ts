@@ -9,7 +9,7 @@ in vec2 uv;out vec4 frag;
 uniform sampler2D uA,uB,uC,uPrev;
 uniform vec2 uResolution;
 uniform int uKind;
-uniform float uTime,uFrame,uSeed,uFeed,uPulse;
+uniform float uTime,uFrame,uSeed,uFeed,uPulse,uImpulse,uImageContrast;
 uniform float level,mixAmount,crossAmount,mixMode;
 uniform float brightness,contrast,hue,saturation,gammaValue,blackLevel,response;
 uniform float distanceValue,rotation,xOffset,yOffset,reflection,reflectionBlend,symmetry,flipX,flipY,perspective,reflectionAngle,reflectionScale,reflectionX,reflectionY,aberration;
@@ -51,9 +51,12 @@ void main(){
    else if(mixMode<2.5)col=abs(a-b*m);
    else col=brighter(a,b*m);
    col=mix(col,c,crossAmount);
+   if(uImpulse>.5)col+=b*.45;
  }
  if(uKind==2){
-   vec3 signal=hueRotate(sampleEdge(uA,screenUV(uv)),hue*PI/180.);
+   vec3 signal=sampleEdge(uA,screenUV(uv));
+   if(uImageContrast!=1.)signal=clamp((signal-.5)*uImageContrast+.5,0.,1.);
+   signal=hueRotate(signal,hue*PI/180.);
    float l=dot(signal,vec3(.2126,.7152,.0722));signal=mix(vec3(l),signal,saturation);
    signal=clamp(signal*contrast+brightness,0.,1.);
    vec3 emitted=pow(signal,vec3(gammaValue));
@@ -98,7 +101,7 @@ void main(){
    vec3 lap=(texture(uA,pos+vec2(px.x,0)).rgb+texture(uA,pos-vec2(px.x,0)).rgb+texture(uA,pos+vec2(0,px.y)).rgb+texture(uA,pos-vec2(0,px.y)).rgb)*.25;
    col=mix(moved,lap,diffusion)*decay;
    col=mix(col,texture(uPrev,uv).rgb,.08);
-   if(uFeed>.5||uPulse>.5)col+=b*feed;
+   if(uFeed>.5||uPulse>.5)col+=b*feed*(1.+uImpulse*3.);
  }
  if(uKind==7){col=a;}
  if(uKind==8){col=pow(clamp(a,0.,1.),vec3(1./viewGamma))*exp2(viewExposure);}

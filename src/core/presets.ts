@@ -279,13 +279,22 @@ function makePreset(id: string): Scene {
     source: "seed",
     seed: 74219,
     simulation: {
-      width: 1920,
-      height: 1080,
+      width: 3840,
+      height: 2160,
       fps: 60,
+      autoCadence: true,
       historyWidth: 480,
-      memoryBudgetMB: 384,
+      memoryBudgetMB: 1536,
     },
     modulations: [
+      {
+        id: "camera-motion",
+        source: "motion",
+        target: "distance",
+        depth: 0.8,
+        rate: 0.1,
+        enabled: true,
+      },
       {
         id: "sound-exposure",
         source: "audio",

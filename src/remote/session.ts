@@ -1,4 +1,3 @@
-import { mediaDevices } from "../services/devices";
 import { useSyncExternalStore } from "react";
 import {
   ref,
@@ -12,6 +11,14 @@ import {
 } from "firebase/database";
 import { cloud } from "../services/cloud";
 import { studio, attempt } from "../core/studio";
+import { ImageTransfer } from "./image-transfer";
+import {
+  VideoLink,
+  RemoteCandidates,
+  videoConnected,
+  type VideoState,
+} from "./video-link";
+import type { SourceAsset } from "../engine/source";
 import {
   ControllerActionSchema,
   ControllerSampleSchema,
@@ -22,6 +29,32 @@ import {
   type SensorSample,
   type MacroKey,
 } from "../core/model";
+
+async function publishSignal(
+  path: string,
+  description: RTCSessionDescriptionInit & { id?: string },
+) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      set(ref(cloud.db!, path), description),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new Error(
+                "Video setup timed out. Check the internet connection, then retry video.",
+              ),
+            ),
+          10000,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 type HostState = {
   id: string;
   code: string;
@@ -47,6 +80,9 @@ export class HostSession {
   private peer?: RTCPeerConnection;
   private actions?: RTCDataChannel;
   private samples?: RTCDataChannel;
+  private images?: ImageTransfer;
+  private impulseImage?: { id: string; asset: SourceAsset };
+  private phoneCamera?: SourceAsset;
   private statusTimer?: ReturnType<typeof setInterval>;
   private lastSeq = -1;
   private seen = new Set<string>();
@@ -115,6 +151,7 @@ export class HostSession {
           this.update({
             controller: c.uid,
             epoch: c.epoch,
+            connected: false,
             status: "Connecting phone…",
           });
           attempt(() => this.connect(c.epoch));
@@ -151,21 +188,30 @@ export class HostSession {
     }, 1000);
   }
   private async connect(epoch: number) {
+    const controller = this.state.controller;
     const { iceServers } = await cloud.api<{ iceServers: RTCIceServer[] }>(
       `sessions/${this.state.id}/ice`,
       {},
     );
-    if (epoch !== this.state.epoch) return;
+    if (
+      epoch !== this.state.epoch ||
+      !controller ||
+      controller !== this.state.controller
+    )
+      return;
     const pc = new RTCPeerConnection({ iceServers });
     this.peer = pc;
     const base = `sessions/${this.state.id}/signals/${epoch}`;
     pc.onicecandidate = (e) => {
-      if (e.candidate)
-        push(ref(cloud.db!, `${base}/hostCandidates`), e.candidate.toJSON());
+      if (e.candidate && pc === this.peer)
+        void push(
+          ref(cloud.db!, `${base}/hostCandidates`),
+          e.candidate.toJSON(),
+        ).catch(() => {});
     };
-    pc.onconnectionstatechange = () => {
+    pc.onconnectionstatechange = pc.oniceconnectionstatechange = () => {
       if (pc !== this.peer) return;
-      const connected = pc.connectionState === "connected";
+      const connected = videoConnected(pc);
       this.update({
         connected,
         status: connected
@@ -180,6 +226,20 @@ export class HostSession {
       ordered: false,
       maxRetransmits: 0,
     });
+    this.images = new ImageTransfer(
+      pc.createDataChannel("images", { ordered: true }),
+      async (id, image) => {
+        if (pc !== this.peer || this.state.expires < Date.now())
+          throw new Error("Phone lease ended.");
+        const asset = await studio.sources.addFile(image, "Phone impulse.jpg");
+        if (pc !== this.peer || this.state.expires < Date.now()) {
+          studio.sources.remove(asset.id);
+          throw new Error("Phone lease ended.");
+        }
+        this.discardImpulseImage();
+        this.impulseImage = { id, asset };
+      },
+    );
     this.actions.onmessage = (e) => {
       try {
         this.receive(JSON.parse(e.data), true);
@@ -195,43 +255,65 @@ export class HostSession {
       }
     };
     pc.ontrack = (e) => {
-      if (e.track.kind === "video" && e.streams[0])
-        attempt(() => studio.camera(e.streams[0]));
+      if (e.track.kind === "video" && pc === this.peer)
+        attempt(async () => {
+          const asset = await studio.sources.camera(
+            e.streams[0] ?? new MediaStream([e.track]),
+          );
+          if (pc !== this.peer) {
+            studio.sources.remove(asset.id);
+            return;
+          }
+          this.phoneCamera = asset;
+          await studio.selectAsset(asset);
+        });
     };
-    const queued: RTCIceCandidateInit[] = [];
+    const candidates = new RemoteCandidates(pc);
+    // The initial answer and a camera/ICE offer can arrive close together.
+    // Apply descriptions in order instead of racing setRemoteDescription calls.
+    let signaling = Promise.resolve();
+    const signal = (task: () => Promise<void>) => {
+      signaling = signaling
+        .catch(() => {})
+        .then(async () => {
+          if (pc === this.peer) await task();
+        });
+      void signaling.catch((error) => {
+        if (pc === this.peer) studio.fail(error);
+      });
+    };
     this.peerOffs.push(
       onChildAdded(ref(cloud.db!, `${base}/remoteCandidates`), (snap) => {
-        const value = snap.val();
-        if (pc.remoteDescription) pc.addIceCandidate(value).catch(() => {});
-        else queued.push(value);
+        if (pc === this.peer) void candidates.add(snap.val());
       }),
     );
     this.peerOffs.push(
-      onValue(ref(cloud.db!, `${base}/answer`), async (snap) => {
-        if (snap.exists() && !pc.remoteDescription) {
-          await pc.setRemoteDescription(snap.val());
-          for (const c of queued) await pc.addIceCandidate(c);
-        }
-      }),
-    );
-    this.peerOffs.push(
-      onValue(ref(cloud.db!, `${base}/remoteOffer`), async (snap) => {
-        if (snap.exists()) {
-          try {
+      onValue(ref(cloud.db!, `${base}/answer`), (snap) => {
+        if (snap.exists())
+          signal(async () => {
+            if (pc.signalingState !== "have-local-offer") return;
             await pc.setRemoteDescription(snap.val());
+            await candidates.flush();
+          });
+      }),
+    );
+    this.peerOffs.push(
+      onValue(ref(cloud.db!, `${base}/remoteOffer`), (snap) => {
+        if (snap.exists())
+          signal(async () => {
+            const offer = snap.val();
+            await pc.setRemoteDescription(offer);
+            await candidates.flush();
             await pc.setLocalDescription(await pc.createAnswer());
-            await set(
-              ref(cloud.db!, `${base}/remoteAnswer`),
-              pc.localDescription?.toJSON(),
-            );
-          } catch (error) {
-            studio.fail(error);
-          }
-        }
+            await publishSignal(`${base}/remoteAnswer`, {
+              ...pc.localDescription!.toJSON(),
+              ...(typeof offer.id === "string" ? { id: offer.id } : {}),
+            });
+          });
       }),
     );
     await pc.setLocalDescription(await pc.createOffer());
-    await set(ref(cloud.db!, `${base}/offer`), pc.localDescription?.toJSON());
+    await publishSignal(`${base}/offer`, pc.localDescription!.toJSON());
   }
   private receive(data: any, reliable: boolean) {
     const parsed = (
@@ -265,6 +347,10 @@ export class HostSession {
       if (data.type === "freeze") studio.freeze();
       if (data.type === "reset") studio.reset();
       if (data.type === "inject") studio.inject();
+      if (data.type === "image-inject" && this.impulseImage?.id === data.value)
+        attempt(() => studio.injectImage(this.impulseImage!.asset));
+      if (data.type === "camera-source" && this.phoneCamera)
+        attempt(() => studio.selectAsset(this.phoneCamera!));
       if (data.type === "balance") attempt(() => studio.balance());
       if (data.type === "preset" && typeof data.value === "string")
         attempt(() => studio.preset(data.value));
@@ -288,6 +374,10 @@ export class HostSession {
     });
   }
   private closePeer() {
+    this.images?.dispose();
+    this.images = undefined;
+    this.phoneCamera = undefined;
+    this.discardImpulseImage();
     this.peerOffs.forEach((fn) => fn());
     this.peerOffs = [];
     this.peer?.close();
@@ -306,6 +396,18 @@ export class HostSession {
       motion: 0,
       color: 0,
     });
+  }
+  private discardImpulseImage() {
+    const asset = this.impulseImage?.asset;
+    if (
+      asset &&
+      studio.state.scene.source !== asset.id &&
+      !studio.state.scene.assets.includes(asset.id) &&
+      studio.state.scene.screenImage?.source !== asset.id &&
+      !studio.state.scene.graph.nodes.some((n) => n.sourceId === asset.id)
+    )
+      studio.sources.remove(asset.id);
+    this.impulseImage = undefined;
   }
   dispose() {
     this.closePeer();
@@ -330,6 +432,14 @@ export class PhoneConnection {
   peer?: RTCPeerConnection;
   actions?: RTCDataChannel;
   samples?: RTCDataChannel;
+  private images?: ImageTransfer;
+  private cameraSender?: RTCRtpSender;
+  private cameraTrack?: MediaStreamTrack;
+  private cameraUpdate = Promise.resolve();
+  private cameraPaused = false;
+  private video?: VideoLink;
+  private signaling: Promise<unknown> = Promise.resolve();
+  private offerId?: string;
   uid = "";
   epoch = 0;
   private seq = 0;
@@ -338,6 +448,7 @@ export class PhoneConnection {
   private pending: Record<string, any> = {};
   private flushTimer?: ReturnType<typeof setTimeout>;
   onStatus?: (status: string) => void;
+  onVideoState?: (state: VideoState) => void;
   onScene?: (state: any) => void;
   onDisconnected?: () => void;
   constructor(
@@ -354,52 +465,68 @@ export class PhoneConnection {
     this.epoch = result.epoch;
     const pc = new RTCPeerConnection({ iceServers: result.iceServers });
     this.peer = pc;
+    this.video = new VideoLink(
+      pc,
+      () => this.offer(true),
+      (state) => {
+        this.onVideoState?.(state);
+        this.onStatus?.(
+          {
+            connected: "Connected",
+            connecting: "Touch controls ready · connecting video",
+            retrying: "Cloud controls · retrying video",
+            blocked: "Cloud controls · video unavailable",
+          }[state],
+        );
+      },
+    );
     const base = `sessions/${this.id}/signals/${this.epoch}`;
     pc.onicecandidate = (e) => {
-      if (e.candidate)
-        push(ref(cloud.db!, `${base}/remoteCandidates`), e.candidate.toJSON());
+      if (e.candidate && pc === this.peer)
+        void push(
+          ref(cloud.db!, `${base}/remoteCandidates`),
+          e.candidate.toJSON(),
+        ).catch(() => {});
     };
     pc.ondatachannel = (e) => {
       if (e.channel.label === "actions") this.actions = e.channel;
-      else this.samples = e.channel;
-      e.channel.onopen = () => this.onStatus?.("Connected");
+      else if (e.channel.label === "samples") this.samples = e.channel;
+      else if (e.channel.label === "images")
+        this.images = new ImageTransfer(e.channel);
+      e.channel.onopen = () => this.video?.check();
     };
-    pc.onconnectionstatechange = () => {
-      if (
-        pc.connectionState === "failed" ||
-        pc.connectionState === "disconnected"
-      )
-        this.onStatus?.("Cloud controls · video reconnecting");
-    };
-    const queued: RTCIceCandidateInit[] = [];
+    const candidates = new RemoteCandidates(pc);
     this.offs.push(
       onChildAdded(ref(cloud.db!, `${base}/hostCandidates`), (snap) => {
-        if (pc.remoteDescription)
-          pc.addIceCandidate(snap.val()).catch(() => {});
-        else queued.push(snap.val());
+        if (pc === this.peer) void candidates.add(snap.val());
       }),
     );
     this.offs.push(
-      onValue(ref(cloud.db!, `${base}/offer`), async (snap) => {
-        if (snap.exists() && !pc.remoteDescription) {
-          try {
+      onValue(ref(cloud.db!, `${base}/offer`), (snap) => {
+        if (snap.exists())
+          void this.signal(async () => {
+            if (pc !== this.peer || pc.remoteDescription) return;
             await pc.setRemoteDescription(snap.val());
-            for (const c of queued) await pc.addIceCandidate(c);
+            await candidates.flush();
             await pc.setLocalDescription(await pc.createAnswer());
-            await set(
-              ref(cloud.db!, `${base}/answer`),
-              pc.localDescription?.toJSON(),
+            await publishSignal(
+              `${base}/answer`,
+              pc.localDescription!.toJSON(),
             );
-          } catch {
-            this.onStatus?.("Cloud controls active");
-          }
-        }
+          }).catch(() => this.video?.blocked());
       }),
     );
     this.offs.push(
-      onValue(ref(cloud.db!, `${base}/remoteAnswer`), async (snap) => {
-        if (snap.exists() && pc.signalingState === "have-local-offer")
-          await pc.setRemoteDescription(snap.val());
+      onValue(ref(cloud.db!, `${base}/remoteAnswer`), (snap) => {
+        if (snap.exists())
+          void this.signal(async () => {
+            const answer = snap.val();
+            if (pc !== this.peer || pc.signalingState !== "have-local-offer")
+              return;
+            if (answer.id && answer.id !== this.offerId) return;
+            await pc.setRemoteDescription(answer);
+            await candidates.flush();
+          }).catch(() => this.video?.blocked());
       }),
     );
     this.offs.push(
@@ -424,7 +551,39 @@ export class PhoneConnection {
         .api(`sessions/${this.id}/heartbeat`, { epoch: this.epoch })
         .catch(() => this.onStatus?.("Connection interrupted"));
     }, 10000);
-    this.onStatus?.("Touch controls ready · connecting video");
+  }
+  private signal<T>(task: () => Promise<T>): Promise<T> {
+    const operation = this.signaling.catch(() => {}).then(task);
+    this.signaling = operation;
+    return operation;
+  }
+  private async offer(iceRestart: boolean) {
+    const pc = this.peer,
+      video = this.video;
+    if (!pc || !video)
+      throw new Error("Pair the phone again to connect video.");
+    // A camera offer may overlap an automatic retry. Wait outside the queue so
+    // receiving the outstanding answer can still make signaling stable.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await video.waitForSignaling();
+      const sent = await this.signal(async () => {
+        if (pc !== this.peer)
+          throw new Error("The phone connection was closed.");
+        if (pc.signalingState !== "stable") return false;
+        this.offerId = crypto.randomUUID();
+        await pc.setLocalDescription(await pc.createOffer({ iceRestart }));
+        await publishSignal(
+          `sessions/${this.id}/signals/${this.epoch}/remoteOffer`,
+          { ...pc.localDescription!.toJSON(), id: this.offerId },
+        );
+        return true;
+      });
+      if (sent) return;
+    }
+    throw new Error("Video setup is busy. Retry video in a moment.");
+  }
+  retryVideo() {
+    return this.video?.retry();
   }
   sample(type: "macros" | "sensors", values: Record<string, number>) {
     const data = {
@@ -474,32 +633,79 @@ export class PhoneConnection {
       this.actions.send(JSON.stringify(data));
     else set(ref(cloud.db!, `sessions/${this.id}/actions/${id}`), data);
   }
-  async camera() {
-    if (!this.peer || this.peer.connectionState !== "connected")
+  prepareImage(image: Blob) {
+    if (!this.images)
       throw new Error(
-        "Wait for the video connection before enabling your camera.",
+        "Wait for the direct phone connection before preparing an image.",
       );
-    const stream = await mediaDevices().getUserMedia({
-      video: {
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-        aspectRatio: { ideal: 16 / 9 },
-        facingMode: "environment",
-      },
-      audio: false,
-    });
-    stream.getVideoTracks().forEach((track) =>
-      this.peer!.addTransceiver(track, {
-        direction: "sendonly",
-        streams: [stream],
-      }),
-    );
-    await this.peer.setLocalDescription(await this.peer.createOffer());
-    await set(
-      ref(cloud.db!, `sessions/${this.id}/signals/${this.epoch}/remoteOffer`),
-      this.peer.localDescription?.toJSON(),
-    );
+    return this.images.send(image);
+  }
+  async camera(stream: MediaStream) {
+    const pc = this.peer,
+      video = this.video;
+    if (!pc || !video)
+      throw new Error("Pair the phone again to connect video.");
+    const track = stream.getVideoTracks()[0];
+    if (!track || track.readyState !== "live")
+      throw new Error("Enable the camera first.");
+    this.cameraTrack = track;
+    track.contentHint = "detail";
+    video.watch();
+    await video.waitForSignaling();
+    if (
+      pc !== this.peer ||
+      track !== this.cameraTrack ||
+      track.readyState !== "live"
+    )
+      throw new Error("Camera was stopped.");
+    if (this.cameraSender) {
+      await this.pauseCamera(false);
+      if (!videoConnected(pc)) await this.offer(true);
+      if (
+        pc !== this.peer ||
+        track !== this.cameraTrack ||
+        track.readyState !== "live"
+      )
+        throw new Error("Camera was stopped.");
+      this.action("camera-source");
+      return stream;
+    }
+    this.cameraPaused = false;
+    this.cameraSender = pc.addTransceiver(track, {
+      direction: "sendonly",
+      streams: [stream],
+      sendEncodings: [
+        {
+          maxBitrate: 40000000,
+          maxFramerate: track.getSettings().frameRate ?? 30,
+          scaleResolutionDownBy: 1,
+        },
+      ],
+    }).sender;
+    await this.offer(!videoConnected(pc));
+    if (
+      pc !== this.peer ||
+      track !== this.cameraTrack ||
+      track.readyState !== "live"
+    )
+      throw new Error("Camera was stopped.");
     return stream;
+  }
+  pauseCamera(paused: boolean) {
+    this.cameraPaused = paused;
+    this.cameraUpdate = this.cameraUpdate
+      .catch(() => {})
+      .then(async () => {
+        if (this.cameraSender)
+          await this.cameraSender.replaceTrack(
+            this.cameraPaused ? null : (this.cameraTrack ?? null),
+          );
+      });
+    return this.cameraUpdate;
+  }
+  async stopCamera() {
+    this.cameraTrack = undefined;
+    await this.pauseCamera(true);
   }
   private ended() {
     this.onStatus?.("Control has been released");
@@ -511,6 +717,10 @@ export class PhoneConnection {
     this.close();
   }
   close() {
+    this.video?.dispose();
+    this.video = undefined;
+    this.images?.dispose();
+    this.images = undefined;
     this.actions = undefined;
     this.samples = undefined;
     this.pending = {};
@@ -520,5 +730,9 @@ export class PhoneConnection {
     this.offs = [];
     this.peer?.getSenders().forEach((s) => s.track?.stop());
     this.peer?.close();
+    this.cameraTrack?.stop();
+    this.cameraTrack = undefined;
+    this.cameraSender = undefined;
+    this.peer = undefined;
   }
 }

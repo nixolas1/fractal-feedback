@@ -60,6 +60,81 @@ try {
     false,
     "Production build must not expose test hooks",
   );
+  await expect(page.locator(".caption-right small")).toContainText(
+    "3840 × 2160",
+  );
+  await page.keyboard.press("3");
+  await page.keyboard.press(".", { delay: 100 });
+  assert.ok(
+    Number(
+      await page.getByLabel("Contrast value", { exact: true }).inputValue(),
+    ) > 0,
+  );
+  await page.keyboard.press("Backspace");
+  const aPosition = page.getByLabel("Camera A horizontal position", {
+    exact: true,
+  });
+  const bPosition = page.getByLabel("Camera B horizontal position", {
+    exact: true,
+  });
+  const aBefore = Number(await aPosition.inputValue()),
+    bBefore = Number(await bPosition.inputValue());
+  await page.keyboard.press("d", { delay: 100 });
+  assert.ok(Number(await aPosition.inputValue()) > aBefore);
+  assert.equal(Number(await bPosition.inputValue()), bBefore);
+  await page.keyboard.press("ArrowRight", { delay: 100 });
+  assert.ok(Number(await bPosition.inputValue()) > bBefore);
+  await page.keyboard.press("i");
+  const imageBuffer = Buffer.from(
+    await page.evaluate(() => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 3840;
+      canvas.height = 2160;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "black";
+      ctx.fillRect(0, 0, 3840, 2160);
+      ctx.strokeStyle = "white";
+      ctx.lineWidth = 32;
+      ctx.beginPath();
+      ctx.moveTo(1920, 180);
+      ctx.lineTo(3500, 1980);
+      ctx.lineTo(340, 1980);
+      ctx.closePath();
+      ctx.stroke();
+      return canvas.toDataURL("image/png").split(",")[1];
+    }),
+    "base64",
+  );
+  await page
+    .getByLabel("Screen image from gallery", { exact: true })
+    .setInputFiles({
+      name: "deployment-screen.png",
+      mimeType: "image/png",
+      buffer: imageBuffer,
+    });
+  await expect(
+    page.getByRole("status").filter({ hasText: "Image ready." }),
+  ).toBeVisible();
+  await page
+    .getByLabel("Injection contrast value", { exact: true })
+    .fill("1.5");
+  await page
+    .getByLabel("Injection contrast value", { exact: true })
+    .press("Enter");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Space");
+  await expect(
+    page.getByText("Image on screen. The loop captures its light.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page.keyboard.press("p");
+  await expect(
+    page.getByRole("button", { name: "Continue", exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press("p");
+  results.keyboard =
+    "Native 4K output, slider selection/adjustment, independent WASD/arrows, staged image contrast, Space injection and P freeze passed on the hosted build.";
   await page.getByRole("button", { name: "Pair phone", exact: true }).click();
   const created = page.waitForResponse(
     (r) => r.url() === `${api}/sessions` && r.request().method() === "POST",
@@ -76,6 +151,7 @@ try {
       viewport: { width: 390, height: 844 },
     }),
     phone = await phoneContext.newPage();
+  phone.on("pageerror", (error) => errors.push(error.message));
   await phone.goto(`${origin}/?remote=${session.id}&code=${session.code}`);
   const claimed = phone.waitForResponse(
     (r) => r.url().endsWith("/claim") && r.request().method() === "POST",
@@ -102,13 +178,50 @@ try {
   await expect(page.getByLabel("Camera A value", { exact: true })).toHaveValue(
     "12",
   );
+  await phone
+    .getByLabel("Camera A distance value", { exact: true })
+    .fill("1.2");
+  await phone
+    .getByLabel("Camera A distance value", { exact: true })
+    .press("Tab");
+  await expect(
+    page.getByLabel("Camera A distance value", { exact: true }),
+  ).toHaveValue("1.2");
+  await phone
+    .getByLabel("Impulse image from gallery", { exact: true })
+    .setInputFiles({
+      name: "phone-impulse.png",
+      mimeType: "image/png",
+      buffer: imageBuffer,
+    });
+  await expect(
+    phone.getByRole("button", { name: "Send image now", exact: true }),
+  ).toBeEnabled({ timeout: 30000 });
+  await phone
+    .getByRole("button", { name: "Send image now", exact: true })
+    .click();
+  await expect(
+    page.getByText(
+      "Phone image injected. Its captured light continues in the loop.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await phone.setViewportSize({ width: 844, height: 390 });
   await phone.getByRole("button", { name: "Live camera", exact: true }).click();
+  await expect(
+    phone.getByRole("button", { name: "Live camera on", exact: true }),
+  ).toBeVisible();
+  await expect(phone.locator(".camera-preview")).toContainText(
+    "Live landscape",
+  );
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "Close panel" })
     .click();
   await page.getByRole("button", { name: "Sources", exact: true }).click();
-  await expect(page.getByText("Phone camera", { exact: true })).toBeVisible({
+  await expect(
+    page.locator(".source-list").getByText("Phone camera", { exact: true }),
+  ).toBeVisible({
     timeout: 15000,
   });
   await phone
@@ -116,7 +229,7 @@ try {
     .click();
   await phoneContext.close();
   results.phone =
-    "Direct WebRTC, controls, optional camera action and release passed in two desktop browser contexts.";
+    "Direct WebRTC, distance and motor controls, full-resolution image preload/manual impulse, landscape camera action and release passed in two desktop browser contexts.";
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "Close panel" })

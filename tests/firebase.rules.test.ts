@@ -10,22 +10,26 @@ import { ref, get, set } from "firebase/database";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { ref as fileRef, uploadBytes, getBytes } from "firebase/storage";
 let env: RulesTestEnvironment;
+const endpoint = (value: string | undefined, port: number) => {
+  const [host, configuredPort] = value?.split(":") ?? [
+    "127.0.0.1",
+    String(port),
+  ];
+  return { host, port: Number(configuredPort) };
+};
 beforeAll(async () => {
   env = await initializeTestEnvironment({
     projectId: "demo-feedback",
     database: {
-      host: "127.0.0.1",
-      port: 9000,
+      ...endpoint(process.env.FIREBASE_DATABASE_EMULATOR_HOST, 9000),
       rules: readFileSync("database.rules.json", "utf8"),
     },
     firestore: {
-      host: "127.0.0.1",
-      port: 8080,
+      ...endpoint(process.env.FIRESTORE_EMULATOR_HOST, 8080),
       rules: readFileSync("firestore.rules", "utf8"),
     },
     storage: {
-      host: "127.0.0.1",
-      port: 9199,
+      ...endpoint(process.env.FIREBASE_STORAGE_EMULATOR_HOST, 9199),
       rules: readFileSync("storage.rules", "utf8"),
     },
   });
@@ -158,6 +162,10 @@ describe("installation permissions", () => {
     await assertFails(send({ cameraSpin: 30.1 }));
     await assertFails(send({ cameraBSpin: -30.1 }));
     await assertFails(send({ screenSpin: 31 }));
+    await assertSucceeds(send({ cameraDistance: 0.5, cameraBDistance: 2 }));
+    await assertFails(send({ cameraDistance: 0.49 }));
+    await assertFails(send({ cameraBDistance: 2.01 }));
+    await assertFails(send({ cameraDistance: 1 }, "sensors"));
     await assertFails(send({ contrast: 2 }));
     await assertFails(send({ turn: 2 }));
     await assertFails(send({ screenSpin: 5 }, "sensors"));

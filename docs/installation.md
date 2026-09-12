@@ -6,7 +6,7 @@ Use the production build on the display computer, enable hardware acceleration, 
 
 Save an opening moment and export a backup `.feedback` file. Browser storage is private to this profile and can be evicted or cleared by the browser; exported files are portable. A cloud copy provides another backup when configured.
 
-Enter fullscreen with F, then Clean view if desired. Freeze is always available. Avoid operating-system sleep during the performance. A single visible renderer is the intended display setup; background browser tabs may be throttled.
+Enter fullscreen with F, then Clean view with V if desired. P freezes or resumes; Space injects the selected image onto the screen. I opens image selection and contrast, and H shows all keyboard controls. WASD and arrows move cameras A and B independently. Avoid operating-system sleep during the performance. A single visible renderer is the intended display setup; background browser tabs may be throttled.
 
 ## Visitor controls
 
@@ -23,6 +23,10 @@ Connect the phone and display computer to the same Wi-Fi, then open Pair phone a
 On the phone, enable capabilities individually. Tilt is relative to its position when enabled; Recenter makes the current position neutral. Sensitivity controls its range. Sound stays local and sends levels/bands/onsets, not an audio stream. Camera motion stays local and sends motion and color; Live camera explicitly sends a video track to the host. Deliberate accelerometer impulses inject a pulse and never pretend to measure absolute position.
 
 The phone can release its lease, or the host can use Release this phone. A new visitor can then pair. Network loss fades sensor offsets toward neutral and leaves the scene in place. Touch controls fall back to throttled RTDB delivery when the direct data channel is unavailable. Video still requires working WebRTC connectivity. Wi-Fi client isolation can prevent a direct connection; use a network without client isolation or configure optional TURN relaying.
+
+Live camera can be enabled while the direct connection is still being established. Camera permission triggers fresh route discovery when needed. The phone retries a stalled route once and then shows **Video could not connect**, with a manual **Retry video connection** button. **Preview only** means the camera is available locally but has no video connection to the studio. Camera motion and touch controls can still use Firebase. **Turn sensors off** is available even during camera setup.
+
+If Chrome-to-Chrome works but Brave does not, check Brave’s **Settings → Privacy and security → WebRTC IP handling policy**. **Default** allows direct video; **Disable non-proxied UDP** can prevent it. Also check VPN and guest Wi-Fi restrictions. Reload both the studio and phone after deploying a connection update, then pair again.
 
 ## Saving and recovering
 

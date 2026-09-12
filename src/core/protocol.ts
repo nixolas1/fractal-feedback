@@ -50,12 +50,31 @@ export const ControllerActionSchema = z
     id: z.string().max(100),
     uid: z.string().max(128),
     epoch: z.number().int(),
-    type: z.enum(["capture", "freeze", "reset", "inject", "balance", "preset"]),
+    type: z.enum([
+      "capture",
+      "freeze",
+      "reset",
+      "inject",
+      "image-inject",
+      "camera-source",
+      "balance",
+      "preset",
+    ]),
     value: z.string().max(40).optional(),
   })
   .strict();
 export const CheckpointStateSchema = z.object({
   frame: z.number().int().nonnegative(),
+  time: z.number().finite().nonnegative().optional(),
+  impulse: z.number().int().min(0).max(120).optional(),
+  screenInjection: z
+    .object({
+      source: z.string(),
+      target: z.string(),
+      contrast: z.number().min(0.25).max(3),
+      remaining: z.number().int().min(1).max(120),
+    })
+    .optional(),
   pulse: z.number().int().min(0).max(1000),
   heads: z.record(z.number().int().min(0).max(30)),
   front: z.record(z.number().int().min(0).max(1)),

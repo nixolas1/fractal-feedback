@@ -4,6 +4,43 @@ Measured on 11 September 2026 on the available Apple M2 Max. For the subsequent 
 
 ## Automated checks
 
+### Phone video recovery — 12 September 2026
+
+- All 24 local Chromium tests, 24 unit tests, and three opted-in Firebase video scenarios pass. App, Functions, and MCP checks and the production build pass. The three separate cloud-emulator specs remain gated.
+- Camera setup waits for the initial SDP exchange rather than requiring an already-connected ICE transport. Granting camera permission can therefore precede a fresh ICE offer. Description changes are serialized, answers identify their offer, and candidates arriving before a restart's description are retained.
+- A stalled route retries after 12 seconds, then reports unavailable video after another 15 seconds. Manual retry and browser network restoration can start another attempt. Signaling writes and waits each time out after ten seconds. Local preview, direct video, and cloud controls have distinct status text; sensors can be stopped during camera setup.
+- Real Firebase Auth, Functions and RTDB with two isolated Chromium contexts verify: camera activation before ICE is connected, fresh ICE credentials, delivered camera frames, stopping/reusing one sender; persistent candidate blocking with a finite failure status and working fallback controls; and lost signaling with a bounded setup error and immediate device shutdown. The tests proxy only their own authenticated API requests to accommodate production's Hosting-origin restriction. Access rules and backend configuration are unchanged.
+- Unit checks cover signaling readiness without ICE, lagging aggregate connection state, bounded retries, release cancellation, missing signaling, and early candidates from a new ICE generation. Brave and physical phones were not available for automated verification; the user confirmed Chrome-to-Chrome camera operation.
+
+Repeat the opted-in video scenarios with `FEEDBACK_VIDEO_TEST=fractal-feedback pnpm exec playwright test tests/video-connection.spec.ts`. This creates temporary anonymous phone leases in the existing project and releases them afterward; session records expire through scheduled cleanup. Ordinary browser runs skip these three scenarios.
+
+### Continuous keyboard motion — 12 September 2026
+
+- All 24 local Chromium tests and 18 unit tests pass. App, Functions, and MCP checks and the production build pass. Cloud rules and backend behavior are unchanged by this frontend update.
+- Held keys record direction on keydown and stop on keyup. Animation frames integrate elapsed time; repeated keydown events do not add movement. Continuous sliders and camera positions retain fractional values. Whole-number controls accumulate fractional travel before changing their count.
+- Deterministic unit checks compare 30, 60, and 144 Hz with no repeats, sparse repeats, and dense repeats; each produces the same linear motion. They also verify short taps between frames, opposing keys, cancellation, and suspension without a later jump.
+- Browser checks use a controlled clock to verify exact travel (a 123 ms slider hold changes a −1…1 range by 0.0492), smooth focused-slider arrows, independent simultaneous camera movement, opposing keys, endpoint reversal, immediate key release, focus loss, hidden pages, and saves interrupting input.
+- The deployed build passes a real-time check of slider rate with 50 synthetic repeated keydowns, simultaneous camera motion, and stopping on release and blur, without JavaScript errors. [Live measurements](keyboard-2026-09-12.json).
+
+### Keyboard performance and screen image injection — 12 September 2026
+
+- 22 local Chromium tests, 14 unit tests, and 6 Firebase emulator rule tests pass. App, Functions, and MCP checks and the production build pass. Three cloud integration specs are separately gated; deployment is checked with the live production smoke script.
+- Keyboard tests exercise all eleven performance slider selectors, bracket traversal into panel sliders, adjustment, limits and reset, independent WASD/arrow camera movement, native focused-slider arrows, ignored browser modifier combinations, typing, and non-repeating freeze actions.
+- A test patch with no source connected to its screen verifies that a prepared image leaves the live source and frame counter unchanged; Space replaces only the targeted screen, applies the previewed contrast while preserving edge pixels, reaches the camera and frame memory, and releases after twelve frames at 60 fps. Saving/restoring the queued pulse and feedback buffers reproduces the same continuation. Portable moment export/import remaps both selected and active image references; releasing the phone retains images already used in the scene.
+- The 390-pixel layout fits without horizontal overflow. H opens the complete keyboard guide; I opens the screen image picker, contrast preview, and target selector. P now freezes; Space injects.
+
+### Native 4K and phone image impulses — 12 September 2026
+
+- 14 unit tests, 19 local Chromium tests, and 6 Firebase emulator rule tests pass. App, Functions, and MCP builds pass. The three deployment integration tests remain separate and were not rerun for this change.
+- All eight built-in instruments retain actual 3840 × 2160 RGBA16F processing and average 60.0 fps on the available M2 Max. Mutual and Kaleidoscope use approximately 1,327 MB of frame targets. The measurement uses a two-second warmup followed by six one-second samples per instrument.
+- Five-second Kaleidoscope MP4 recordings were decoded in Chromium and checked for native dimensions, duration, and frame count. At the 60 fps target, the clip contains 292 frames over 4.999 seconds, about 58.4 fps; the renderer still reports 60 fps. A roughly 133 ms startup encoding gap accounts for most of the short clip's deficit. At the 30 fps target, the clip contains 149 frames over 4.964 seconds, about 30.0 fps. Browser recording is variable-frame-rate; these results do not claim frame-perfect 60 fps encoding. Select 30 fps when a steady recorded cadence matters most.
+- A forced 40 Hz frame-delivery test verifies automatic fallback to 30 without changing dimensions, clearing feedback memory, or jumping motor/automation time.
+- Camera tests verify native 4K60 → 4K30 constraint fallback, a single stream shared by live camera and motion analysis, full-frame corner preservation for portrait/wide sources, motion detection and its default effect mapping, and device cleanup.
+- A real local WebRTC image channel with controlled pairing verifies gallery selection, contrast processing, 4K host preparation, and a synthetic gravity-only shake that overrides the source without resetting feedback or calibration. The phone's native photo picker is configured for the rear camera. Physical iOS/Android permission and camera behavior still require a device check.
+- Desktop and 390-pixel phone layouts were visually checked. The phone offers Image on shake, Image contrast, a manual Send image now button, a camera-motion meter, and independent camera-to-screen distance controls.
+
+[Current render and recording measurements](benchmark-4k-2026-09-12.json). Repeat with `node tests/benchmark-4k.mjs` while the local Vite server runs on port 5173; sample clips are written to `tests/artifacts`.
+
 ### Fractal controls — 12 September 2026
 
 - 14 unit tests, 15 local Chromium tests, and 6 Firebase emulator rule tests pass. App, Functions, and MCP builds pass.
@@ -21,7 +58,7 @@ Measured on 11 September 2026 on the available Apple M2 Max. For the subsequent 
 - A production-build offline check loads the instrument on its first online visit, disconnects networking, reloads, opens the separately bundled patch workspace, and saves a local moment.
 - Desktop WebKit 26.6 renders the instrument and opens the patch workspace without JavaScript errors. A sample under concurrent test load measured about 29 fps. This is not an iOS Safari hardware test.
 
-## M2 Max rendering
+## Earlier M2 Max rendering — 11 September
 
 Chromium 153.0.8010.12 uses ANGLE Metal on the Apple M2 Max. Each case warms for two seconds and collects ten one-second samples. A separate optical-core soak was running during these measurements. Values below are means; sub-frame rounding can report fractionally above 60.
 
@@ -34,7 +71,7 @@ Chromium 153.0.8010.12 uses ANGLE Metal on the Apple M2 Max. Each case warms for
 | Time loom  |      60.0 |        235 MB | 3840 × 2160            | 60.0 |        757 MB |
 | Emulsion   |      60.0 |        220 MB | 3840 × 2160            | 60.0 |        767 MB |
 
-All cases used RGBA16F. The default budget is 384 MB; choosing 4K raises it to 768 MB. Mutual exceeds that limit at 4K and is explicitly reduced to 2774 × 1560. Emulsion keeps 4K processing but reduces history width to 244 pixels. Memory figures describe allocated render targets, not total browser-process or driver memory. The latest capture stays full resolution; older delays have their own resolution.
+These earlier cases used RGBA16F with the previous 384 MB default and 768 MB 4K budget. Mutual exceeded that limit and was reduced to 2774 × 1560; Emulsion reduced history width to 244 pixels. The current 1,536 MB 4K budget resolves these built-in allocation limits, as measured above. Memory figures describe allocated render targets, not total browser-process or driver memory. The latest capture stays full resolution; older delays have their own resolution.
 
 [Raw benchmark measurements](benchmark-2026-09-11.json).
 

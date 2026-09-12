@@ -53,6 +53,7 @@ test("exclusive phone lease, real WebRTC camera transfer, fallback controls, hos
   await expect(phone.getByRole("alert")).toContainText(
     "Touch controls still work",
   );
+  await phone.setViewportSize({ width: 844, height: 390 });
   await phone.getByRole("button", { name: "Live camera", exact: true }).click();
   await expect
     .poll(() =>
@@ -101,8 +102,8 @@ test("exclusive phone lease, real WebRTC camera transfer, fallback controls, hos
     c.samples?.close();
     c.actions?.close();
   });
-  await phone.getByLabel("Distance value", { exact: true }).fill("0.22");
-  await phone.getByLabel("Distance value", { exact: true }).press("Tab");
+  await phone.getByLabel("Linked distance value", { exact: true }).fill("0.22");
+  await phone.getByLabel("Linked distance value", { exact: true }).press("Tab");
   await expect
     .poll(() =>
       page.evaluate(

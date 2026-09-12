@@ -37,6 +37,8 @@ type Loaded = {
   paused?: boolean;
   dirty: boolean;
   lastVideoTime?: number;
+  textureWidth?: number;
+  textureHeight?: number;
 };
 export class SourceManager {
   items = new Map<string, Loaded>();
@@ -319,6 +321,7 @@ export class SourceManager {
         if (!blob)
           throw new Error("This live source needs permission to reconnect.");
         item.image = await createImageBitmap(blob);
+        this.sizeFrame(item, item.image.width, item.image.height, 1280);
         this.paintFit(item, item.image);
         item.image.close();
         item.image = undefined;
@@ -411,6 +414,17 @@ export class SourceManager {
     );
     item.dirty = true;
   }
+  private sizeFrame(item: Loaded, width: number, height: number, minimum = 0) {
+    const w = Math.min(
+      3840,
+      Math.max(minimum, width, Math.ceil((height * 16) / 9)),
+    );
+    const h = Math.round((w * 9) / 16);
+    if (item.canvas.width !== w || item.canvas.height !== h) {
+      item.canvas.width = w;
+      item.canvas.height = h;
+    }
+  }
   private paintFit(item: Loaded, source: CanvasImageSource) {
     const ctx = item.canvas.getContext("2d")!,
       w = item.canvas.width,
@@ -424,12 +438,8 @@ export class SourceManager {
         ? source.videoHeight
         : (source as ImageBitmap).height;
     if (!sw || !sh) return;
-    // Camera feeds fill the landscape frame without stretching; imported
-    // media keeps its complete composition with letterboxing when needed.
-    const s =
-      item.asset.kind === "camera"
-        ? Math.max(w / sw, h / sh)
-        : Math.min(w / sw, h / sh);
+    // Preserve the complete native camera frame, including when a phone turns.
+    const s = Math.min(w / sw, h / sh);
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, w, h);
     ctx.drawImage(source, (w - sw * s) / 2, (h - sh * s) / 2, sw * s, sh * s);
@@ -520,25 +530,46 @@ export class SourceManager {
       item.video.readyState >= 2 &&
       item.video.currentTime !== item.lastVideoTime
     ) {
+      if (item.asset.kind === "camera") {
+        // Keep native detail instead of routing every camera through 720p.
+        this.sizeFrame(item, item.video.videoWidth, item.video.videoHeight);
+      }
       this.paintFit(item, item.video);
       item.lastVideoTime = item.video.currentTime;
     }
     if (!item.texture) {
       item.texture = g.createTexture()!;
+      item.textureWidth = item.textureHeight = 0;
       item.dirty = true;
     }
     if (item.dirty) {
       g.bindTexture(g.TEXTURE_2D, item.texture);
       this.setupTexture();
       g.pixelStorei(g.UNPACK_FLIP_Y_WEBGL, true);
-      g.texImage2D(
-        g.TEXTURE_2D,
-        0,
-        g.RGBA,
-        g.RGBA,
-        g.UNSIGNED_BYTE,
-        item.canvas,
-      );
+      if (
+        item.textureWidth === item.canvas.width &&
+        item.textureHeight === item.canvas.height
+      ) {
+        g.texSubImage2D(
+          g.TEXTURE_2D,
+          0,
+          0,
+          0,
+          g.RGBA,
+          g.UNSIGNED_BYTE,
+          item.canvas,
+        );
+      } else
+        g.texImage2D(
+          g.TEXTURE_2D,
+          0,
+          g.RGBA,
+          g.RGBA,
+          g.UNSIGNED_BYTE,
+          item.canvas,
+        );
+      item.textureWidth = item.canvas.width;
+      item.textureHeight = item.canvas.height;
       g.pixelStorei(g.UNPACK_FLIP_Y_WEBGL, false);
       item.dirty = false;
     }

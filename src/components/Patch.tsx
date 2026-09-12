@@ -259,6 +259,7 @@ export function Patch() {
                   min={param.min}
                   max={param.max}
                   step={param.step}
+                  resetValue={param.default}
                   unit={param.unit}
                   onChange={(value) =>
                     attempt(() =>

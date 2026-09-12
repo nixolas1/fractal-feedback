@@ -130,6 +130,8 @@ test("each motor and contrast change the rendered image with a still source", as
       "cameraBSpin",
       "screenSpin",
       "contrast",
+      "cameraDistance",
+      "cameraBDistance",
     ]) {
       const scene = PRESETS.find((p: any) => p.id === "kaleidoscope").make();
       scene.simulation = {
@@ -143,14 +145,26 @@ test("each motor and contrast change the rendered image with a still source", as
         scene.macros.cameraBSpin =
         scene.macros.screenSpin =
           0;
-      if (key !== "none") scene.macros[key] = key === "contrast" ? -0.5 : 8;
+      if (key !== "none")
+        scene.macros[key] = key.includes("Distance")
+          ? 1.15
+          : key === "contrast"
+            ? -0.5
+            : 8;
       engine.configure(scene, true);
       for (let i = 0; i < 120; i++) engine.step();
       images[key] = engine.preview(256);
     }
     return images;
   });
-  for (const key of ["cameraSpin", "cameraBSpin", "screenSpin", "contrast"])
+  for (const key of [
+    "cameraSpin",
+    "cameraBSpin",
+    "screenSpin",
+    "contrast",
+    "cameraDistance",
+    "cameraBDistance",
+  ])
     expect(images[key], key).not.toEqual(images.none);
 });
 
@@ -159,7 +173,14 @@ test("main shelf exposes contrast and three motors, freezes them, and resumes so
 }) => {
   await page.goto("/");
   await page.waitForFunction(() => (window as any).__feedback?.getEngine());
-  for (const name of ["Contrast", "Camera A", "Camera B", "Screen"])
+  for (const name of [
+    "Contrast",
+    "Camera A",
+    "Camera B",
+    "Screen",
+    "Camera A distance",
+    "Camera B distance",
+  ])
     await expect(page.getByRole("slider", { name, exact: true })).toBeVisible();
   await page
     .getByRole("spinbutton", { name: "Camera A value", exact: true })

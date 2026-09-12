@@ -75,6 +75,7 @@ export const NODE_SPECS: Record<
     inputs: ["direct", "reflection"],
     params: {
       distance: p("Magnification", 0.75, 1.25, 1.012, 0.0001),
+      screenDistance: p("Camera–screen distance", 0.5, 2, 1, 0.001, "×"),
       rotation: p("Camera roll", -180, 180, 1.2, 0.01, "°"),
       rotationSpeed: p("Camera rotation speed", -60, 60, 0, 0.1, "°/s"),
       symmetry: p("Kaleidoscope mirrors", 1, 16, 1, 1),
@@ -162,7 +163,12 @@ export const GraphNodeSchema = z
     params: {
       ...(node.kind === "screen" ? { rotation: 0, rotationSpeed: 0 } : {}),
       ...(node.kind === "optics"
-        ? { rotationSpeed: 0, symmetry: 1, reflectionBlend: 0 }
+        ? {
+            rotationSpeed: 0,
+            symmetry: 1,
+            reflectionBlend: 0,
+            screenDistance: 1,
+          }
         : {}),
       ...node.params,
     } as Record<string, number>,
@@ -184,6 +190,8 @@ export const GraphSchema = z.object({
 export type Graph = z.infer<typeof GraphSchema>;
 export const MacrosSchema = z.object({
   distance: z.number().min(-1).max(1),
+  cameraDistance: z.number().min(0.5).max(2).default(1),
+  cameraBDistance: z.number().min(0.5).max(2).default(1),
   turn: z.number().min(-1).max(1),
   balance: z.number().min(-1).max(1),
   contrast: z.number().min(-1).max(1).default(0),
@@ -209,10 +217,10 @@ export type MacroControl = {
 export const MACROS: MacroControl[] = [
   {
     key: "distance",
-    label: "Distance",
+    label: "Linked distance",
     min: -1,
     max: 1,
-    hint: "Move through the image",
+    hint: "Fine adjustment of both cameras together; use Camera–screen distance for independent in/out travel",
   },
   {
     key: "turn",
@@ -250,6 +258,26 @@ export const MACROS: MacroControl[] = [
     hint: "Lengthen the feedback path",
   },
 ];
+export const DISTANCE_MACROS: MacroControl[] = [
+  {
+    key: "cameraDistance",
+    label: "Camera A distance",
+    min: 0.5,
+    max: 2,
+    step: 0.001,
+    unit: "×",
+    hint: "Distance from camera A to its screens relative to this setup: below 1 moves closer and enlarges the image; above 1 moves farther away and shrinks it",
+  },
+  {
+    key: "cameraBDistance",
+    label: "Camera B distance",
+    min: 0.5,
+    max: 2,
+    step: 0.001,
+    unit: "×",
+    hint: "Independent distance from camera B to its screens: below 1 moves closer; above 1 moves farther away",
+  },
+];
 export const ROTATION_MACROS: MacroControl[] = [
   {
     key: "cameraSpin",
@@ -281,6 +309,8 @@ export const ROTATION_MACROS: MacroControl[] = [
 ];
 export const MacroTargetSchema = z.enum([
   "distance",
+  "cameraDistance",
+  "cameraBDistance",
   "turn",
   "balance",
   "contrast",
@@ -333,13 +363,21 @@ export const SceneSchema = z
     linked: z.boolean(),
     feed: z.boolean(),
     source: z.string(),
+    screenImage: z
+      .object({
+        source: z.string(),
+        target: z.string().default("all"),
+        contrast: z.number().min(0.25).max(3).default(1),
+      })
+      .optional(),
     seed: z.number().int(),
     simulation: z.object({
       width: z.number().int().min(64).max(3840),
       height: z.number().int().min(36).max(2160),
       fps: z.union([z.literal(24), z.literal(30), z.literal(60)]),
+      autoCadence: z.boolean().optional(),
       historyWidth: z.number().int().min(64).max(1280),
-      memoryBudgetMB: z.number().min(64).max(768),
+      memoryBudgetMB: z.number().min(64).max(1536),
     }),
     modulations: z.array(ModulationSchema).max(24),
     automation: AutomationSchema,
@@ -392,6 +430,8 @@ export const BatchSchema = z.object({
 });
 export const defaultMacros: Macros = {
   distance: 0,
+  cameraDistance: 1,
+  cameraBDistance: 1,
   turn: 0,
   balance: 0,
   contrast: 0,

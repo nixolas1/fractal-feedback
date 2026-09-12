@@ -70,12 +70,20 @@ describe("causal optical graph", () => {
   it("loads old scenes and gesture lanes with stationary motors and unchanged optical behavior", () => {
     const scene = PRESETS[1].make();
     const legacy = JSON.parse(JSON.stringify(scene));
-    for (const key of ["contrast", "cameraSpin", "cameraBSpin", "screenSpin"])
+    for (const key of [
+      "contrast",
+      "cameraSpin",
+      "cameraBSpin",
+      "screenSpin",
+      "cameraDistance",
+      "cameraBDistance",
+    ])
       delete legacy.macros[key];
     for (const node of legacy.graph.nodes) {
       delete node.params.rotationSpeed;
       delete node.params.symmetry;
       delete node.params.reflectionBlend;
+      delete node.params.screenDistance;
       if (node.kind === "screen") delete node.params.rotation;
     }
     legacy.automation.points = [{ time: 0, values: { ...legacy.macros } }];

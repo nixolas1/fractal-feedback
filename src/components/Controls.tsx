@@ -1,16 +1,54 @@
 import { useRef, useState, useEffect, type PointerEvent } from "react";
-import { ROTATION_MACROS, type MacroKey, type Macros } from "../core/model";
+import {
+  DISTANCE_MACROS,
+  ROTATION_MACROS,
+  type MacroKey,
+  type Macros,
+} from "../core/model";
 import { ControlHelp } from "./ControlHelp";
+import {
+  registerSlider,
+  selectSlider,
+  SLIDER_KEYS,
+  type SliderControl,
+} from "../services/keyboard";
+function useKeyboardRange(spec: SliderControl) {
+  const ref = useRef<HTMLInputElement>(null);
+  const control = useRef(spec);
+  control.current = spec;
+  useEffect(() => registerSlider(ref.current!, () => control.current), []);
+  return ref;
+}
 export function XYPad({
   values,
   onChange,
   touchHelp = false,
+  label = "Camera position",
+  caption = "Move the camera",
 }: {
   values: Pick<Macros, "x" | "y">;
   onChange: (key: MacroKey, value: number) => void;
   touchHelp?: boolean;
+  label?: string;
+  caption?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const xRange = useKeyboardRange({
+    label: `${label} horizontal position`,
+    min: -1,
+    max: 1,
+    step: 0.005,
+    resetValue: 0,
+    onChange: (value) => onChange("x", value),
+  });
+  const yRange = useKeyboardRange({
+    label: `${label} vertical position`,
+    min: -1,
+    max: 1,
+    step: 0.005,
+    resetValue: 0,
+    onChange: (value) => onChange("y", value),
+  });
   function move(e: PointerEvent<HTMLDivElement>) {
     if (
       e.type !== "pointerdown" &&
@@ -33,7 +71,7 @@ export function XYPad({
         ref={ref}
         className="xy-pad"
         role="group"
-        aria-label="Camera position"
+        aria-label={label}
         onPointerDown={(e) => {
           e.currentTarget.setPointerCapture(e.pointerId);
           move(e);
@@ -54,28 +92,32 @@ export function XYPad({
           }}
         />
         <input
-          aria-label="Camera horizontal position"
+          ref={xRange}
+          aria-label={`${label === "Camera position" ? "Camera" : label} horizontal position`}
           className="sr-only"
           type="range"
           min="-1"
           max="1"
-          step=".005"
+          step="any"
+          onFocus={(e) => selectSlider(e.currentTarget)}
           value={values.x}
           onChange={(e) => onChange("x", +e.target.value)}
         />
         <input
-          aria-label="Camera vertical position"
+          ref={yRange}
+          aria-label={`${label === "Camera position" ? "Camera" : label} vertical position`}
           className="sr-only"
           type="range"
           min="-1"
           max="1"
-          step=".005"
+          step="any"
+          onFocus={(e) => selectSlider(e.currentTarget)}
           value={values.y}
           onChange={(e) => onChange("y", +e.target.value)}
         />
       </div>
       <span className="xy-caption">
-        Move the camera
+        {caption}
         {touchHelp && (
           <ControlHelp
             label="Move the camera"
@@ -97,6 +139,8 @@ export function Slider({
   unit = "",
   compact = false,
   touchHelp = false,
+  resetValue = 0,
+  shortcut,
 }: {
   label: string;
   value: number;
@@ -108,9 +152,19 @@ export function Slider({
   unit?: string;
   compact?: boolean;
   touchHelp?: boolean;
+  resetValue?: number;
+  shortcut?: string;
 }) {
   const Container = touchHelp ? "div" : "label";
   const initial = useRef<{ x: number; value: number } | null>(null);
+  const range = useKeyboardRange({
+    label,
+    min,
+    max,
+    step,
+    resetValue,
+    onChange,
+  });
   const decimals = Math.min(7, Math.max(0, -Math.floor(Math.log10(step))));
   const [draft, setDraft] = useState(String(value));
   const [editing, setEditing] = useState(false);
@@ -133,6 +187,9 @@ export function Slider({
       <span className="slider-heading">
         <span className={touchHelp ? "slider-label-help" : undefined}>
           {label}
+          {shortcut && !touchHelp && (
+            <kbd className="slider-shortcut">{shortcut}</kbd>
+          )}
           {touchHelp && hint && (
             <ControlHelp
               label={label}
@@ -153,6 +210,7 @@ export function Slider({
           onKeyDown={(e) => {
             if (e.key === "Enter") e.currentTarget.blur();
             if (e.key === "Escape") {
+              e.stopPropagation();
               setDraft(String(value));
               setEditing(false);
             }
@@ -164,12 +222,16 @@ export function Slider({
         <span className="unit">{unit}</span>
       </span>
       <input
+        ref={range}
         aria-label={label}
+        data-shortcut={touchHelp ? undefined : shortcut}
+        aria-keyshortcuts={touchHelp ? undefined : shortcut}
         type="range"
         min={min}
         max={max}
-        step={step}
+        step={step === 1 ? 1 : "any"}
         value={value}
+        onFocus={(e) => selectSlider(e.currentTarget)}
         style={
           {
             "--fill": `${((value - min) / (max - min)) * 100}%`,
@@ -178,8 +240,9 @@ export function Slider({
         onChange={(e) => {
           if (!initial.current) onChange(+e.target.value);
         }}
-        onDoubleClick={() => onChange(Math.max(min, Math.min(max, 0)))}
+        onDoubleClick={() => onChange(Math.max(min, Math.min(max, resetValue)))}
         onPointerDown={(e) => {
+          selectSlider(e.currentTarget);
           if (e.shiftKey) {
             e.preventDefault();
             initial.current = { x: e.clientX, value };
@@ -218,6 +281,44 @@ export function Slider({
     </Container>
   );
 }
+export function DistanceControls({
+  values,
+  dual,
+  onChange,
+  touchHelp = false,
+}: {
+  values: Macros;
+  dual: boolean;
+  onChange: (key: MacroKey, value: number) => void;
+  touchHelp?: boolean;
+}) {
+  return (
+    <section
+      className="rotation-controls distance-controls"
+      aria-label="Camera–screen distance"
+    >
+      <div className="rotation-caption">
+        <span>Camera–screen distance</span>
+        <small>Closer ← 1× → farther</small>
+      </div>
+      <div className="rotation-bank distance-bank">
+        {DISTANCE_MACROS.filter((m) => dual || m.key !== "cameraBDistance").map(
+          ({ key, ...m }) => (
+            <Slider
+              key={key}
+              {...m}
+              value={values[key]}
+              resetValue={1}
+              shortcut={SLIDER_KEYS[key]}
+              touchHelp={touchHelp}
+              onChange={(value) => onChange(key, value)}
+            />
+          ),
+        )}
+      </div>
+    </section>
+  );
+}
 export function RotationControls({
   values,
   dual,
@@ -246,6 +347,7 @@ export function RotationControls({
             <Slider
               key={m.key}
               label={m.label}
+              shortcut={SLIDER_KEYS[m.key]}
               value={values[m.key]}
               min={m.min}
               max={m.max}

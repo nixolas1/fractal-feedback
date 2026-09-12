@@ -16,11 +16,24 @@ import {
   Copy,
 } from "lucide-react";
 import { hostSession, useHostSession, PhoneConnection } from "./session";
+import type { VideoState } from "./video-link";
 import { cloud } from "../services/cloud";
 import { Sensors } from "../services/sensors";
-import { MACROS, defaultMacros, type Macros } from "../core/model";
+import { ImpulseImage } from "./ImpulseImage";
+import {
+  MACROS,
+  defaultMacros,
+  type Macros,
+  type SensorSample,
+} from "../core/model";
 import { PRESETS } from "../core/presets";
-import { Mark, XYPad, Slider, RotationControls } from "../components/Controls";
+import {
+  Mark,
+  XYPad,
+  Slider,
+  RotationControls,
+  DistanceControls,
+} from "../components/Controls";
 import { ControlHelp } from "../components/ControlHelp";
 import { attempt, studio } from "../core/studio";
 
@@ -169,8 +182,36 @@ export function Remote({
     [values, setValues] = useState<Macros>({ ...defaultMacros }),
     [preset, setPreset] = useState("fold"),
     [enabled, setEnabled] = useState<string[]>([]);
+  const [pending, setPending] = useState<string[]>([]);
+  const [videoState, setVideoState] = useState<VideoState>("connecting");
+  const [camera, setCamera] = useState<MediaStream>();
+  const [cameraSize, setCameraSize] = useState({ width: 0, height: 0 });
+  const [landscape, setLandscape] = useState(
+    () => matchMedia("(orientation: landscape)").matches,
+  );
+  const [readings, setReadings] = useState<SensorSample>({});
+  const [impulses, setImpulses] = useState(0);
+  const [imageReady, setImageReady] = useState(false);
+  const impulseImage = useRef<string | undefined>(undefined);
+  const preview = useRef<HTMLVideoElement>(null);
   const connection = useRef<PhoneConnection | undefined>(undefined),
     sensors = useRef<Sensors | undefined>(undefined);
+  const cameraPaused = !landscape || cameraSize.width < cameraSize.height;
+  useEffect(() => {
+    const query = matchMedia("(orientation: landscape)");
+    const update = () => setLandscape(query.matches);
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  useEffect(() => {
+    if (preview.current) preview.current.srcObject = camera ?? null;
+  }, [camera]);
+  useEffect(() => {
+    if (enabled.includes("camera"))
+      void connection.current
+        ?.pauseCamera(cameraPaused)
+        .catch((e) => setError(String(e)));
+  }, [enabled, cameraPaused]);
   useEffect(
     () => () => {
       connection.current?.close();
@@ -189,6 +230,9 @@ export function Remote({
   useEffect(() => {
     if (import.meta.env.DEV)
       (window as any).__feedbackRemote = {
+        PhoneConnection,
+        hostSession,
+        studio,
         connection: () => connection.current,
         sensors: () => sensors.current,
       };
@@ -197,6 +241,7 @@ export function Remote({
     const c = new PhoneConnection(sessionId, code);
     connection.current = c;
     c.onStatus = setStatus;
+    c.onVideoState = setVideoState;
     c.onScene = (state) => {
       setPreset(state.scene);
       setFrozen(state.frozen);
@@ -206,24 +251,52 @@ export function Remote({
     c.onDisconnected = () => {
       setConnected(false);
       setEnabled([]);
+      setCamera(undefined);
       sensors.current?.stop();
     };
     await c.join();
-    sensors.current = new Sensors((sample) =>
-      c.sample("sensors", sample as Record<string, number>),
-    );
-    sensors.current.onset = () => c.action("inject");
+    sensors.current = new Sensors((sample) => {
+      c.sample("sensors", sample as Record<string, number>);
+      setReadings((previous) => ({ ...previous, ...sample }));
+    });
+    sensors.current.onset = sendImpulse;
+    sensors.current.audioOnset = () => c.action("inject");
     setConnected(true);
   }
   async function sensor(kind: string) {
     const s = sensors.current;
     if (!s) return;
-    if (kind === "tilt") await s.orientation();
-    if (kind === "microphone") await s.microphone();
-    if (kind === "impulse") await s.impulses();
-    if (kind === "motion") await s.cameraMotion();
-    if (kind === "camera") await connection.current?.camera();
-    setEnabled((old) => [...old, kind]);
+    setPending((old) => [...old, kind]);
+    try {
+      if (kind === "tilt") await s.orientation();
+      if (kind === "microphone") await s.microphone();
+      if (kind === "impulse") await s.impulses();
+      if (kind === "motion") setCamera(await s.cameraMotion());
+      if (kind === "camera") {
+        const stream = await s.camera();
+        setCamera(stream);
+        try {
+          await connection.current?.camera(stream);
+        } catch (error) {
+          await connection.current?.stopCamera();
+          if (s.releaseUnusedCamera()) setCamera(undefined);
+          throw error;
+        }
+      }
+      setEnabled((old) => [...old, kind]);
+    } finally {
+      setPending((old) => old.filter((id) => id !== kind));
+    }
+  }
+  function sendImpulse() {
+    if (!impulseImage.current) {
+      setError(
+        "Choose a gallery image or camera photo and wait for Image ready before shaking.",
+      );
+      return;
+    }
+    connection.current?.action("image-inject", impulseImage.current);
+    setImpulses((count) => count + 1);
   }
   function macro(key: keyof Macros, value: number) {
     setValues((v) => ({ ...v, [key]: value }));
@@ -264,6 +337,42 @@ export function Remote({
       ) : (
         <>
           <p className="remote-help-intro">Tap ? beside a control for tips.</p>
+          {videoState !== "connected" && (
+            <section
+              className="remote-video-status"
+              aria-label="Video connection"
+            >
+              <p role="status">
+                {videoState === "blocked"
+                  ? "Video could not connect. Touch and motion controls still work."
+                  : videoState === "retrying"
+                    ? "Retrying the video connection…"
+                    : "Connecting video… You can enable the camera now."}
+              </p>
+              {videoState === "blocked" && (
+                <>
+                  <p className="muted small">
+                    Keep the studio open and both devices on the same Wi-Fi.
+                    Guest Wi-Fi, VPNs, or browser privacy settings can block
+                    direct video. Chrome on both devices is a useful check.
+                  </p>
+                  <p className="muted small">
+                    Using Brave? In Settings → Privacy and security, check
+                    WebRTC IP handling policy. Default allows direct video;
+                    Disable non-proxied UDP can prevent it. A network that
+                    blocks direct connections needs a video relay.
+                  </p>
+                </>
+              )}
+              <button
+                className="button"
+                disabled={videoState === "retrying"}
+                onClick={() => run(() => connection.current?.retryVideo())}
+              >
+                <RefreshCcw size={16} /> Retry video connection
+              </button>
+            </section>
+          )}
           <div className="remote-help-control">
             <select
               className="remote-preset"
@@ -300,6 +409,12 @@ export function Remote({
               />
             ))}
           </div>
+          <DistanceControls
+            values={values}
+            dual={preset === "mutual" || preset === "kaleidoscope"}
+            onChange={macro}
+            touchHelp
+          />
           <RotationControls
             values={values}
             dual={preset === "mutual" || preset === "kaleidoscope"}
@@ -340,9 +455,19 @@ export function Remote({
               <RotateCcw size={16} /> Reset
             </RemoteButton>
           </div>
+          <ImpulseImage
+            connection={connection.current!}
+            onReady={(id) => {
+              impulseImage.current = id;
+              setImageReady(!!id);
+            }}
+          />
           <section>
             <h2>Let your phone join in</h2>
-            <p>Enable only what you want to use.</p>
+            <p>
+              Hold the phone sideways for live camera or camera motion. Capture
+              uses the full landscape picture.
+            </p>
             <div className="sensor-buttons">
               {[
                 {
@@ -361,34 +486,101 @@ export function Remote({
                   id: "camera",
                   label: "Live camera",
                   Icon: Camera,
-                  help: "Tap and allow camera access to feed your rear camera into the artwork. Hold the phone sideways for a wide view and aim at shapes, light, or movement. The camera fills the display. Use Turn sensors off to stop it.",
+                  help: "Hold your phone sideways, then tap and allow camera access. The rear camera sends its native landscape picture, requesting 4K at 60 or 30 fps when supported. The preview shows the actual capture size. Turning upright pauses transmission; nothing is cropped. Use Turn sensors off to stop it.",
                 },
                 {
                   id: "motion",
                   label: "Camera motion",
                   Icon: ScanEye,
-                  help: "Tap and allow camera access, then move the phone or wave something in front of it. Movement and color become controls for the pattern; this does not send the camera picture to the artwork. The effect depends on the instrument’s sensor mappings.",
+                  help: "Hold the phone sideways, allow camera access, then move it or wave in front of it. Movement changes camera distance and color shifts the palette in every built-in instrument. The motion meter shows detection. This shares the live camera when enabled; otherwise only control values are sent.",
                 },
                 {
                   id: "impulse",
                   label: "Impulse",
                   Icon: Zap,
-                  help: "Tap and allow motion access if asked. A short, deliberate shake adds a pulse of the current source to the loop. Pause briefly between gestures. Use Turn sensors off to stop.",
+                  help: "Choose a photo in Image on shake and adjust its contrast first. Enable Impulse and allow motion access if asked. Each short shake sends that image into the loop, replacing the current source. Sensitivity adjusts the shake threshold. Send image now also works without sensors.",
                 },
               ].map(({ id, label, Icon, help }) => (
                 <RemoteButton
                   label={label}
                   help={help}
                   className={`button ${enabled.includes(id) ? "enabled" : ""}`}
-                  disabled={enabled.includes(id)}
+                  disabled={enabled.includes(id) || pending.includes(id)}
                   key={id}
                   onClick={() => run(() => sensor(id))}
                 >
                   <Icon size={17} />
-                  {enabled.includes(id) ? `${label} on` : label}
+                  {pending.includes(id)
+                    ? `Enabling ${label.toLowerCase()}…`
+                    : enabled.includes(id)
+                      ? `${label} on`
+                      : label}
                 </RemoteButton>
               ))}
             </div>
+            {camera && (
+              <div className="camera-preview">
+                <video
+                  ref={preview}
+                  muted
+                  autoPlay
+                  playsInline
+                  aria-label="Full camera preview"
+                  onResize={(e) =>
+                    setCameraSize({
+                      width: e.currentTarget.videoWidth,
+                      height: e.currentTarget.videoHeight,
+                    })
+                  }
+                />
+                <p role="status">
+                  {cameraSize.width} × {cameraSize.height} ·{" "}
+                  {Math.round(
+                    camera.getVideoTracks()[0]?.getSettings().frameRate ?? 0,
+                  )}{" "}
+                  fps
+                  {cameraPaused
+                    ? " · Turn sideways to resume landscape video"
+                    : enabled.includes("camera")
+                      ? videoState === "connected"
+                        ? " · Live landscape"
+                        : " · Preview only — video is not connected"
+                      : " · Local motion analysis"}
+                </p>
+              </div>
+            )}
+            {enabled.includes("motion") && (
+              <label className="motion-meter">
+                Camera motion detected
+                <meter min={0} max={1} value={readings.motion ?? 0} />
+                <output>{Math.round((readings.motion ?? 0) * 100)}%</output>
+              </label>
+            )}
+            <RemoteButton
+              label="Send image now"
+              help="Override the current source with the selected photo and inject it into the loop. Uses the contrast shown in the preview. This works without motion permission. Unfreeze the artwork to see it."
+              className="button"
+              disabled={!imageReady}
+              onClick={sendImpulse}
+            >
+              <Zap size={17} /> Send image now
+            </RemoteButton>
+            {impulses > 0 && (
+              <p role="status">
+                {impulses} impulse{impulses === 1 ? "" : "s"} sent
+                {frozen ? " · Unfreeze to see the pulse" : ""}
+              </p>
+            )}
+            {impulses > 0 && enabled.includes("camera") && (
+              <RemoteButton
+                label="Use live camera again"
+                help="Replace the captured impulse image with your live landscape camera feed. The selected impulse photo stays ready for your next shake."
+                className="button"
+                onClick={() => connection.current?.action("camera-source")}
+              >
+                <Camera size={17} /> Use live camera again
+              </RemoteButton>
+            )}
             {enabled.includes("tilt") && (
               <>
                 <RemoteButton
@@ -399,41 +591,38 @@ export function Remote({
                 >
                   <RefreshCcw size={14} /> Recenter tilt
                 </RemoteButton>
-                <Slider
-                  compact
-                  label="Sensitivity"
-                  min={0.1}
-                  max={1}
-                  hint="Adjust how strongly the pattern responds to tilting your phone; lower values make movement gentler and higher values make it stronger"
-                  touchHelp
-                  value={sensors.current?.sensitivity ?? 0.65}
-                  onChange={(v) => {
-                    if (sensors.current) sensors.current.sensitivity = v;
-                    setEnabled((a) => [...a]);
-                  }}
-                />
               </>
+            )}
+            {(enabled.includes("tilt") ||
+              enabled.includes("impulse") ||
+              enabled.includes("motion")) && (
+              <Slider
+                compact
+                label="Sensitivity"
+                resetValue={0.65}
+                min={0.1}
+                max={1}
+                hint="Higher sensitivity makes tilt and camera motion stronger and triggers impulses with a gentler shake"
+                touchHelp
+                value={sensors.current?.sensitivity ?? 0.65}
+                onChange={(v) => {
+                  if (sensors.current) sensors.current.sensitivity = v;
+                  setEnabled((a) => [...a]);
+                }}
+              />
             )}
             <RemoteButton
               label="Turn sensors off"
               help="Tap to stop tilt, sound, camera, camera motion, and impulse input together. The touch controls stay connected. Tap any sensor button to enable it again."
               className="text-button"
-              onClick={() => {
-                sensors.current?.stop();
-                sensors.current = new Sensors((sample) =>
-                  connection.current?.sample(
-                    "sensors",
-                    sample as Record<string, number>,
-                  ),
-                );
-                if (sensors.current)
-                  sensors.current.onset = () =>
-                    connection.current?.action("inject");
-                setEnabled([]);
-                connection.current?.peer
-                  ?.getSenders()
-                  .forEach((s) => s.track?.stop());
-              }}
+              onClick={() =>
+                run(async () => {
+                  sensors.current?.stop();
+                  setEnabled([]);
+                  setCamera(undefined);
+                  await connection.current?.stopCamera();
+                })
+              }
             >
               Turn sensors off
             </RemoteButton>
@@ -446,6 +635,7 @@ export function Remote({
               run(async () => {
                 await connection.current?.release();
                 sensors.current?.stop();
+                setCamera(undefined);
                 setConnected(false);
                 setStatus("Your turn is complete");
               })

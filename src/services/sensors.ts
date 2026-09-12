@@ -1,4 +1,5 @@
 import { mediaDevices } from "./devices";
+import { landscapeCamera } from "./camera";
 import type { SensorSample } from "../core/model";
 export class Sensors {
   private stream?: MediaStream;
@@ -7,20 +8,26 @@ export class Sensors {
   private raf = 0;
   private zero?: { beta: number; gamma: number; alpha: number };
   private latest?: { beta: number; gamma: number; alpha: number };
-  private lastImpulse = 0;
+  private lastImpulse = -Infinity;
+  private gravity?: number[];
   private orientationEnabled = false;
   private motionEnabled = false;
   private motionVideo?: HTMLVideoElement;
   private cameraStream?: MediaStream;
+  private cameraPending?: Promise<MediaStream>;
+  private generation = 0;
+  private analysisEnabled = false;
   private motionPrevious?: Uint8ClampedArray;
   private motionCanvas = document.createElement("canvas");
   sensitivity = 0.65;
   onset?: () => void;
+  audioOnset?: () => void;
   constructor(private emit: (value: SensorSample) => void) {
     this.motionCanvas.width = 64;
     this.motionCanvas.height = 36;
   }
   async orientation() {
+    const generation = this.generation;
     if (typeof DeviceOrientationEvent === "undefined")
       throw new Error("Orientation is unavailable. Use the touch controls.");
     const Orientation =
@@ -34,6 +41,8 @@ export class Sensors {
       throw new Error(
         "Orientation was not enabled. Touch controls still work.",
       );
+    if (generation !== this.generation)
+      throw new Error("Sensors were stopped.");
     window.addEventListener("deviceorientation", this.onOrientation);
     this.orientationEnabled = true;
     this.zero = undefined;
@@ -55,6 +64,7 @@ export class Sensors {
     this.emit({ tiltX: 0, tiltY: 0, roll: 0 });
   }
   async impulses() {
+    const generation = this.generation;
     if (typeof DeviceMotionEvent === "undefined")
       throw new Error("Motion detection is unavailable on this phone.");
     const Motion = DeviceMotionEvent as typeof DeviceMotionEvent & {
@@ -64,43 +74,108 @@ export class Sensors {
       Motion.requestPermission &&
       (await Motion.requestPermission()) !== "granted"
     )
-      throw new Error("Motion was not enabled.");
+      throw new Error("Motion was not enabled. Send image now still works.");
+    if (generation !== this.generation)
+      throw new Error("Sensors were stopped.");
     window.addEventListener("devicemotion", this.onMotion);
     this.motionEnabled = true;
   }
   private onMotion = (e: DeviceMotionEvent) => {
     const a = e.acceleration;
-    if (!a) return;
-    const magnitude = Math.hypot(a.x ?? 0, a.y ?? 0, a.z ?? 0);
-    if (magnitude > 14 && performance.now() - this.lastImpulse > 1200) {
+    let magnitude: number;
+    if (a && [a.x, a.y, a.z].some((v) => v !== null && Number.isFinite(v))) {
+      magnitude = Math.hypot(a.x ?? 0, a.y ?? 0, a.z ?? 0);
+    } else {
+      const g = e.accelerationIncludingGravity;
+      if (!g || ![g.x, g.y, g.z].some((v) => v !== null && Number.isFinite(v)))
+        return;
+      const values = [g.x ?? 0, g.y ?? 0, g.z ?? 0];
+      this.gravity ??= values;
+      magnitude = Math.hypot(...values.map((v, i) => v - this.gravity![i]));
+      this.gravity = values.map((v, i) => this.gravity![i] * 0.8 + v * 0.2);
+    }
+    if (
+      magnitude > 16 - this.sensitivity * 12 &&
+      performance.now() - this.lastImpulse > 650
+    ) {
       this.lastImpulse = performance.now();
       this.onset?.();
     }
   };
   async microphone() {
-    this.stream = await mediaDevices().getUserMedia({
+    const generation = this.generation;
+    const stream = await mediaDevices().getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true },
       video: false,
     });
+    if (generation !== this.generation) {
+      stream.getTracks().forEach((t) => t.stop());
+      throw new Error("Sensors were stopped.");
+    }
+    this.stream = stream;
     this.audio = new AudioContext();
     await this.audio.resume();
+    if (generation !== this.generation)
+      throw new Error("Sensors were stopped.");
     this.analyser = this.audio.createAnalyser();
     this.analyser.fftSize = 512;
     this.analyser.smoothingTimeConstant = 0.75;
     this.audio.createMediaStreamSource(this.stream).connect(this.analyser);
     this.loop();
   }
+  camera(): Promise<MediaStream> {
+    if (
+      this.cameraStream?.getVideoTracks().some((t) => t.readyState === "live")
+    )
+      return Promise.resolve(this.cameraStream);
+    if (this.cameraPending) return this.cameraPending;
+    const generation = this.generation;
+    const pending = (async () => {
+      const stream = await landscapeCamera();
+      const video = document.createElement("video");
+      try {
+        video.srcObject = stream;
+        video.muted = true;
+        video.playsInline = true;
+        await video.play();
+        if (generation !== this.generation)
+          throw new Error("Camera was stopped.");
+        if (video.videoWidth < video.videoHeight)
+          throw new Error(
+            "The camera is still in portrait. Hold your phone sideways and enable it again.",
+          );
+        this.cameraStream = stream;
+        this.motionVideo = video;
+        return stream;
+      } catch (error) {
+        video.pause();
+        video.srcObject = null;
+        stream.getTracks().forEach((t) => t.stop());
+        throw error;
+      }
+    })();
+    this.cameraPending = pending;
+    void pending
+      .finally(() => {
+        if (this.cameraPending === pending) this.cameraPending = undefined;
+      })
+      .catch(() => {});
+    return pending;
+  }
   async cameraMotion() {
-    this.cameraStream = await mediaDevices().getUserMedia({
-      video: { width: 320, height: 180, facingMode: "environment" },
-      audio: false,
-    });
-    this.motionVideo = document.createElement("video");
-    this.motionVideo.srcObject = this.cameraStream;
-    this.motionVideo.muted = true;
-    this.motionVideo.playsInline = true;
-    await this.motionVideo.play();
+    const stream = await this.camera();
+    this.analysisEnabled = true;
     this.loop();
+    return stream;
+  }
+  releaseUnusedCamera() {
+    if (this.analysisEnabled) return false;
+    this.cameraStream?.getTracks().forEach((track) => track.stop());
+    this.motionVideo?.pause();
+    if (this.motionVideo) this.motionVideo.srcObject = null;
+    this.cameraStream = undefined;
+    this.motionVideo = undefined;
+    return true;
   }
   private loop = () => {
     if (this.raf) return;
@@ -127,11 +202,15 @@ export class Sensors {
           time - this.lastImpulse > 300
         ) {
           this.lastImpulse = time;
-          this.onset?.();
+          this.audioOnset?.();
         }
         previousLevel = previousLevel * 0.8 + audio * 0.2;
       }
-      if (this.motionVideo && this.motionVideo.readyState >= 2) {
+      if (
+        this.analysisEnabled &&
+        this.motionVideo &&
+        this.motionVideo.readyState >= 2
+      ) {
         const ctx = this.motionCanvas.getContext("2d", {
           willReadFrequently: true,
         })!;
@@ -152,7 +231,10 @@ export class Sensors {
           blue += pixels[i + 2];
         }
         this.emit({
-          motion: Math.min(1, (diff / ((pixels.length / 4) * 3 * 255)) * 6),
+          motion: Math.min(
+            1,
+            (diff / ((pixels.length / 4) * 3 * 255)) * 10 * this.sensitivity,
+          ),
           color:
             (Math.atan2(Math.sqrt(3) * (green - blue), 2 * red - green - blue) /
               Math.PI) *
@@ -165,16 +247,27 @@ export class Sensors {
     this.raf = requestAnimationFrame(step);
   };
   stop() {
+    this.generation++;
     cancelAnimationFrame(this.raf);
     this.raf = 0;
     this.stream?.getTracks().forEach((t) => t.stop());
     this.cameraStream?.getTracks().forEach((t) => t.stop());
     this.motionVideo?.pause();
+    if (this.motionVideo) this.motionVideo.srcObject = null;
     this.audio?.close();
     if (this.orientationEnabled)
       window.removeEventListener("deviceorientation", this.onOrientation);
     if (this.motionEnabled)
       window.removeEventListener("devicemotion", this.onMotion);
+    this.orientationEnabled = this.motionEnabled = this.analysisEnabled = false;
+    this.stream = this.cameraStream = undefined;
+    this.cameraPending = undefined;
+    this.motionVideo = undefined;
+    this.motionPrevious = undefined;
+    this.analyser = undefined;
+    this.audio = undefined;
+    this.gravity = this.zero = this.latest = undefined;
+    this.lastImpulse = -Infinity;
     this.emit({
       tiltX: 0,
       tiltY: 0,

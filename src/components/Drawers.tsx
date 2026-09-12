@@ -22,6 +22,7 @@ import { clone } from "../core/model";
 import { storage, download, type Moment } from "../services/storage";
 import { Slider } from "./Controls";
 import { cloud } from "../services/cloud";
+import { ScreenImage } from "./ScreenImage";
 export function Sources() {
   const state = useStudio(),
     file = useRef<HTMLInputElement>(null);
@@ -48,6 +49,7 @@ export function Sources() {
         <h2>Bring something in</h2>
         <p>An image, a face, a few words. Let the loop remember.</p>
       </div>
+      <ScreenImage />
       <input
         ref={file}
         className="sr-only"
@@ -145,15 +147,15 @@ export function Sources() {
             >
               {playback.paused ? <Play size={17} /> : <Pause size={17} />}
             </button>
-            <input
-              aria-label="Source playback position"
-              type="range"
-              min="0"
+            <Slider
+              label="Source playback position"
+              compact
+              min={0}
               max={playback.duration}
-              step=".1"
+              step={0.1}
               value={playback.time}
-              onChange={(e) =>
-                studio.sources.seek(state.scene.source, +e.target.value)
+              onChange={(value) =>
+                studio.sources.seek(state.scene.source, value)
               }
             />
             <small>{playback.time.toFixed(1)}s</small>
@@ -235,6 +237,7 @@ export function Sources() {
           min={24}
           max={200}
           step={1}
+          resetValue={86}
           value={size}
           onChange={setSize}
           unit="px"
@@ -518,7 +521,7 @@ export function Settings() {
   function quality(width: number) {
     const next = clone(scene);
     next.simulation.width = width;
-    if (width === 3840) next.simulation.memoryBudgetMB = 768;
+    next.simulation.memoryBudgetMB = width === 3840 ? 1536 : 384;
     next.simulation.height = Math.round((width * 9) / 16);
     studio.commit(next);
     studio.message("Resolution changed. A fresh evolution has started.");
@@ -561,15 +564,21 @@ export function Settings() {
         <label className="field-label">
           Feedback cadence
           <select
-            value={scene.simulation.fps}
+            value={scene.simulation.autoCadence ? "auto" : scene.simulation.fps}
+            disabled={state.recording}
             onChange={(e) =>
               attempt(() => {
                 const next = clone(scene);
-                next.simulation.fps = +e.target.value as 24 | 30 | 60;
+                next.simulation.autoCadence = e.target.value === "auto";
+                next.simulation.fps =
+                  e.target.value === "auto"
+                    ? 60
+                    : (+e.target.value as 24 | 30 | 60);
                 studio.commit(next);
               })
             }
           >
+            <option value="auto">60 fps · auto fallback to 30</option>
             <option value="60">60 frames per second</option>
             <option value="30">30 frames per second</option>
             <option value="24">24 frames per second</option>
@@ -579,6 +588,7 @@ export function Settings() {
           Frame-history width
           <select
             value={scene.simulation.historyWidth}
+            disabled={state.recording}
             onChange={(e) =>
               attempt(() => {
                 const next = clone(scene);
@@ -595,8 +605,10 @@ export function Settings() {
           </select>
         </label>
         <p className="muted small">
-          Long delays keep their own resolution. The engine reduces allocation
-          when a patch reaches its memory budget.
+          Auto cadence keeps the selected resolution and switches to 30 fps
+          after sustained slow frames. Long delays use a separate resolution.
+          Very large patches may exceed the memory budget; check Actual picture
+          below.
         </p>
       </section>
       <section>
@@ -618,7 +630,7 @@ export function Settings() {
         </button>
         <p className="muted small">
           {state.recording
-            ? `${studio.recorder.mime} · ${state.metrics?.width} × ${state.metrics?.height}`
+            ? `${studio.recorder.mime} · ${state.metrics?.width} × ${state.metrics?.height} · up to ${Math.min(studio.recorder.fps, state.metrics?.targetFps ?? studio.recorder.fps)} fps`
             : "Clips use the recording codec supported by this browser and are saved in your gallery."}
         </p>
       </section>
@@ -636,7 +648,10 @@ export function Settings() {
           <dt>Precision</dt>
           <dd>{state.metrics?.precision}</dd>
           <dt>Cadence</dt>
-          <dd>{state.metrics?.fps.toFixed(1)} fps</dd>
+          <dd>
+            {state.metrics?.fps.toFixed(1)} fps · target{" "}
+            {state.metrics?.targetFps}
+          </dd>
           <dt>Balance reference</dt>
           <dd>
             {state.scene.mode === "free"

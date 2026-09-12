@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-test("live cameras fill the landscape frame without stretching", async ({
+test("live cameras preserve native detail and all four source corners without cropping", async ({
   page,
 }) => {
   await page.goto("/");
@@ -13,6 +13,7 @@ test("live cameras fill the landscape frame without stretching", async ({
       for (const [width, height] of [
         [360, 640],
         [960, 360],
+        [3840, 2160],
       ]) {
         const camera = document.createElement("canvas");
         camera.width = width;
@@ -22,27 +23,38 @@ test("live cameras fill the landscape frame without stretching", async ({
         ctx.fillRect(0, 0, width, height);
         ctx.fillStyle = "#2040ff";
         ctx.fillRect((width - 100) / 2, (height - 100) / 2, 100, 100);
+        ctx.fillStyle = "#00ffff";
+        for (const [x, y] of [
+          [0, 0],
+          [width - 20, 0],
+          [0, height - 20],
+          [width - 20, height - 20],
+        ])
+          ctx.fillRect(x, y, 20, 20);
         const asset = await manager.camera(camera.captureStream(10));
         manager.texture(asset.id, 0);
         const frame = manager.items.get(asset.id).canvas;
         const pixels = frame.getContext("2d");
         const color = (x: number, y: number) =>
           [...pixels.getImageData(x, y, 1, 1).data].slice(0, 3);
+        const scale = Math.min(frame.width / width, frame.height / height);
+        const ox = (frame.width - width * scale) / 2,
+          oy = (frame.height - height * scale) / 2;
         frames.push({
           size: [frame.width, frame.height],
           corners: [
-            [0, 0],
-            [1279, 0],
-            [0, 719],
-            [1279, 719],
-          ].map(([x, y]) => color(x, y)),
-          center: color(640, 360),
-          squareWidth: Array.from({ length: 1280 }, (_, x) =>
-            color(x, 360),
-          ).filter((pixel) => pixel[2] > 200).length,
-          squareHeight: Array.from({ length: 720 }, (_, y) =>
-            color(640, y),
-          ).filter((pixel) => pixel[2] > 200).length,
+            [10, 10],
+            [width - 10, 10],
+            [10, height - 10],
+            [width - 10, height - 10],
+          ].map(([x, y]) => color(ox + x * scale, oy + y * scale)),
+          center: color(frame.width / 2, frame.height / 2),
+          squareWidth: Array.from({ length: frame.width }, (_, x) =>
+            color(x, frame.height / 2),
+          ).filter((pixel) => pixel[2] > 200 && pixel[1] < 100).length,
+          squareHeight: Array.from({ length: frame.height }, (_, y) =>
+            color(frame.width / 2, y),
+          ).filter((pixel) => pixel[2] > 200 && pixel[1] < 100).length,
         });
       }
     } finally {
@@ -51,17 +63,19 @@ test("live cameras fill the landscape frame without stretching", async ({
     return frames;
   });
   for (const frame of frames) {
-    expect(frame.size).toEqual([1280, 720]);
     // Browser video conversion can round color channels by a value or two.
     for (const color of frame.corners)
       color.forEach((channel, i) =>
-        expect(Math.abs(channel - [240, 128, 48][i])).toBeLessThanOrEqual(2),
+        expect(Math.abs(channel - [0, 255, 255][i])).toBeLessThanOrEqual(3),
       );
     frame.center.forEach((channel, i) =>
       expect(Math.abs(channel - [32, 64, 255][i])).toBeLessThanOrEqual(2),
     );
     expect(Math.abs(frame.squareWidth - frame.squareHeight)).toBeLessThan(2);
+    // Video chroma conversion blends the square's edge by a couple of pixels.
+    expect(frame.squareWidth).toBeGreaterThanOrEqual(96);
   }
+  expect(frames[2].size).toEqual([3840, 2160]);
 });
 
 test("GIF disposal, explicit timing, aspect fit, seeking, and saved playback position", async ({

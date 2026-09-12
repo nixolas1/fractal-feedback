@@ -20,6 +20,8 @@ import {
   Check,
   Cable,
   Eye,
+  Keyboard,
+  ImagePlus,
 } from "lucide-react";
 import { studio, useStudio, attempt } from "./core/studio";
 import { PRESETS } from "./core/presets";
@@ -30,8 +32,11 @@ import {
   Slider,
   XYPad,
   RotationControls,
+  DistanceControls,
 } from "./components/Controls";
 import { Sources, Gallery, Settings } from "./components/Drawers";
+import { KeyboardHelp } from "./components/KeyboardHelp";
+import { isTyping, keyboardInput, SLIDER_KEYS } from "./services/keyboard";
 const Patch = lazy(() =>
   import("./components/Patch").then((module) => ({ default: module.Patch })),
 );
@@ -131,6 +136,7 @@ function Instrument() {
     [dragging, setDragging] = useState(false),
     [fullscreen, setFullscreen] = useState(false),
     [controlsVisible, setControlsVisible] = useState(true);
+  const [keyboardSelection, setKeyboardSelection] = useState("");
   const preset = PRESETS.find((p) => p.id === state.scene.preset) ?? PRESETS[1];
   const cameraSource = state.assets.some(
     (asset) => asset.id === state.scene.source && asset.kind === "camera",
@@ -160,19 +166,62 @@ function Instrument() {
     const moment = params.get("moment");
     if (moment) setTimeout(() => attempt(() => studio.open(moment)), 200);
     const detach = attachAgentHost();
+    const keyboard = keyboardInput({
+      blocked: () => !!studio.state.busy || studio.state.lost,
+      moveCameras: (movement) => attempt(() => studio.moveCameras(movement)),
+      selection: setKeyboardSelection,
+    });
     function key(e: KeyboardEvent) {
+      if (keyboard.keyDown(e)) return;
       if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement ||
-        e.target instanceof HTMLSelectElement
+        e.defaultPrevented ||
+        e.metaKey ||
+        e.ctrlKey ||
+        e.altKey ||
+        e.isComposing ||
+        isTyping(e.target)
       )
         return;
+      if (studio.state.busy) return;
       if (e.code === "Space") {
         e.preventDefault();
-        attempt(() => studio.freeze());
+        if (!e.repeat) attempt(() => studio.injectScreenImage());
+        return;
       }
-      if (e.key.toLowerCase() === "f") toggleFullscreen();
-      if (e.key === "Escape") studio.update({ clean: false, drawer: null });
+      if (e.repeat) return;
+      const current = studio.state;
+      const togglePanel = (name: typeof current.drawer) =>
+        studio.update({
+          clean: false,
+          drawer: current.drawer === name ? null : name,
+        });
+      const actions: Record<string, () => unknown> = {
+        p: () => studio.freeze(),
+        c: () =>
+          current.scene.feed
+            ? studio.capture()
+            : studio.commands([{ type: "feed", enabled: true }]),
+        b: () =>
+          current.scene.mode === "visitor" &&
+          !current.calibrating &&
+          studio.balance(),
+        x: () => studio.reset(),
+        r: () => studio.recording(),
+        m: () => studio.save(),
+        i: () => togglePanel("sources"),
+        g: () => togglePanel("gallery"),
+        h: () => togglePanel("keyboard"),
+        f: toggleFullscreen,
+        v: () => studio.update({ clean: !current.clean, drawer: null }),
+        escape: () => studio.update({ clean: false, drawer: null }),
+      };
+      const action = actions[e.key.toLowerCase()];
+      if (action) {
+        e.preventDefault();
+        attempt(async () => {
+          if (!studio.state.busy) await action();
+        });
+      }
     }
     function full() {
       setFullscreen(!!document.fullscreenElement);
@@ -181,6 +230,7 @@ function Instrument() {
     document.addEventListener("fullscreenchange", full);
     return () => {
       window.removeEventListener("keydown", key);
+      keyboard.dispose();
       document.removeEventListener("fullscreenchange", full);
       detach();
       studio.unmount();
@@ -269,6 +319,10 @@ function Instrument() {
           ref={canvas}
           className={`art-canvas ${cameraSource ? "camera-feed" : ""}`}
           aria-label="Live optical feedback artwork"
+          onPointerDown={() => {
+            if (document.activeElement instanceof HTMLElement)
+              document.activeElement.blur();
+          }}
         />
         <div className="stage-top">
           <span className="live-label">
@@ -360,15 +414,35 @@ function Instrument() {
       </div>
       <footer className="performance-shelf">
         <div className="controls-row">
-          <XYPad
-            values={state.scene.macros}
-            onChange={(key, value) => attempt(() => studio.macro(key, value))}
-          />
+          <div className="camera-pads">
+            {(["a", "b"] as const).map((camera) => {
+              const optics = state.scene.graph.nodes.find(
+                (n) =>
+                  n.kind === "optics" &&
+                  n.id.endsWith("-b") === (camera === "b"),
+              );
+              return (
+                optics && (
+                  <XYPad
+                    key={camera}
+                    label={`Camera ${camera.toUpperCase()}`}
+                    caption={`Camera ${camera.toUpperCase()} · ${camera === "a" ? "WASD" : "↑←↓→"}`}
+                    values={{ x: optics.params.x * 2, y: optics.params.y * 2 }}
+                    onChange={(key, value) => {
+                      if (key === "x" || key === "y")
+                        attempt(() => studio.position(camera, key, value / 2));
+                    }}
+                  />
+                )
+              );
+            })}
+          </div>
           <div className="macro-bank">
             {MACROS.map((m) => (
               <Slider
                 key={m.key}
                 label={m.label}
+                shortcut={SLIDER_KEYS[m.key]}
                 value={state.scene.macros[m.key]}
                 min={m.min}
                 max={m.max}
@@ -378,6 +452,13 @@ function Instrument() {
             ))}
           </div>
         </div>
+        <DistanceControls
+          values={state.scene.macros}
+          dual={state.scene.graph.nodes.some(
+            (n) => n.kind === "optics" && n.id.endsWith("-b"),
+          )}
+          onChange={(key, value) => attempt(() => studio.macro(key, value))}
+        />
         <RotationControls
           values={state.scene.macros}
           dual={state.scene.graph.nodes.some(
@@ -385,11 +466,30 @@ function Instrument() {
           )}
           onChange={(key, value) => attempt(() => studio.macro(key, value))}
         />
+        <div className="screen-injection-bar">
+          <button
+            className="button"
+            aria-label="Inject image"
+            aria-keyshortcuts="Space"
+            onClick={() => attempt(() => studio.injectScreenImage())}
+            disabled={busy}
+          >
+            <ImagePlus size={16} /> Inject image <kbd>Space</kbd>
+          </button>
+          <button
+            className="text-button"
+            title="Choose image and contrast (I)"
+            onClick={() => drawer("sources")}
+          >
+            {state.assets.find((a) => a.id === state.scene.screenImage?.source)
+              ?.name ?? "Choose image & contrast"}
+          </button>
+        </div>
         <div className="actions-row">
           <div className="performance-actions">
             <button
               className={`button capture-button ${!state.scene.feed ? "captured" : ""}`}
-              title="Keep the source flowing for sustained patterns. Capture disconnects it so the loop can decay."
+              title="Capture / resume source (C)"
               onClick={() =>
                 attempt(() =>
                   state.scene.feed
@@ -404,6 +504,7 @@ function Instrument() {
             </button>
             <button
               className="text-button"
+              title="Freeze / continue (P)"
               onClick={() => attempt(() => studio.freeze())}
               disabled={busy}
             >
@@ -412,6 +513,7 @@ function Instrument() {
             </button>
             <button
               className="text-button"
+              title="Find balance (B)"
               onClick={() => attempt(() => studio.balance())}
               disabled={
                 state.calibrating || state.scene.mode === "free" || busy
@@ -427,6 +529,7 @@ function Instrument() {
             </button>
             <button
               className="text-button"
+              title="Reset loop memory (X)"
               onClick={() => studio.reset()}
               disabled={busy}
             >
@@ -438,7 +541,11 @@ function Instrument() {
             <button
               className={`icon-button ${state.recording ? "recording" : ""}`}
               aria-label={state.recording ? "Stop recording" : "Record video"}
-              title={state.recording ? "Stop & save recording" : "Record video"}
+              title={
+                state.recording
+                  ? "Stop & save recording (R)"
+                  : "Record video (R)"
+              }
               onClick={() => attempt(() => studio.recording())}
             >
               <Circle
@@ -448,6 +555,7 @@ function Instrument() {
             </button>
             <button
               className="button save-button"
+              title="Save moment (M)"
               onClick={() => attempt(() => studio.save())}
               disabled={busy}
             >
@@ -457,10 +565,15 @@ function Instrument() {
           </div>
         </div>
         <div className="shelf-footnote">
-          <span>
-            {state.scene.mode === "visitor"
-              ? "A held balance. Room to wander."
-              : "An open apparatus. Every adjustment is yours."}
+          <button
+            className="text-button"
+            title="Keyboard shortcuts (H)"
+            onClick={() => drawer("keyboard")}
+          >
+            <Keyboard size={14} /> Shortcuts <kbd>H</kbd>
+          </button>
+          <span className="keyboard-selection" role="status">
+            {keyboardSelection || "1–0 / − select · , / . adjust"}
           </span>
           <button className="text-button" onClick={() => drawer("agents")}>
             <Cable size={12} /> Agent connection
@@ -517,6 +630,8 @@ function Instrument() {
               <PhonePanel />
             ) : state.drawer === "agents" ? (
               <AgentPanel />
+            ) : state.drawer === "keyboard" ? (
+              <KeyboardHelp />
             ) : (
               <Settings />
             )}
